@@ -12,6 +12,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _server = TextEditingController();
+  bool _prefilled = false;
   final _user = TextEditingController();
   final _password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -40,6 +41,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final c = TodoColors.of(context);
+    if (!_prefilled && (state.lastServer?.isNotEmpty ?? false)) {
+      _server.text = state.lastServer!;
+      _prefilled = true;
+    }
     return Scaffold(
       body: SafeArea(
         child: Center(

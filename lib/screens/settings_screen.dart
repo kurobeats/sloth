@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../state.dart';
 import '../todo_theme.dart';
+import 'account_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -12,7 +13,7 @@ class SettingsScreen extends StatelessWidget {
     final c = TodoColors.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Appearance')),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
@@ -67,6 +68,18 @@ class SettingsScreen extends StatelessWidget {
             onSelected: state.setLightTheme,
           ),
           const Divider(height: 32),
+          ListTile(
+            leading: Icon(Icons.badge_outlined, color: c.accent),
+            title: Text('Account settings', style: TextStyle(color: c.primaryText)),
+            subtitle: Text(
+              'Name, language, timezone, defaults, reminders',
+              style: TextStyle(fontSize: 12, color: c.secondaryText),
+            ),
+            trailing: Icon(Icons.chevron_right, color: c.secondaryText),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Text(

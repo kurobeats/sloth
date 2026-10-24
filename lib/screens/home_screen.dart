@@ -6,8 +6,11 @@ import '../todo_format.dart';
 import '../todo_theme.dart';
 import '../widgets/entry_bar.dart';
 import '../widgets/task_tile.dart';
+import 'labels_screen.dart';
+import 'project_settings_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
+import 'teams_screen.dart';
 import 'task_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -40,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final state = AppScope.of(context);
     VikunjaProject? target = state.selection.project;
     if (target == null) {
-      final projects = state.projects.where((p) => !p.isArchived).toList();
+      final projects = state.writableProjects.where((p) => !p.isArchived).toList();
       if (projects.isEmpty) return;
       if (projects.length > 1) {
         target = await showModalBottomSheet<VikunjaProject>(
@@ -134,6 +137,15 @@ class _HomeScreenState extends State<HomeScreen> {
               switch (value) {
                 case 'refresh':
                   await state.refresh();
+                case 'project':
+                  final project = state.selection.project;
+                  if (project != null) {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ProjectSettingsScreen(project: project),
+                      ),
+                    );
+                  }
                 case 'appearance':
                   await Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const SettingsScreen()),
@@ -142,10 +154,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   await state.signOut();
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-              PopupMenuItem(value: 'appearance', child: Text('Appearance')),
-              PopupMenuItem(value: 'signout', child: Text('Logout')),
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+              if (state.selection.project != null)
+                const PopupMenuItem(value: 'project', child: Text('Project settings')),
+              const PopupMenuItem(value: 'appearance', child: Text('Settings')),
+              const PopupMenuItem(value: 'signout', child: Text('Logout')),
             ],
           ),
         ],
@@ -496,7 +510,7 @@ class _Drawer extends StatelessWidget {
                 ],
               ),
             ),
-            for (final project in state.projects)
+            for (final project in state.sortedProjects)
               _DrawerRow(
                 icon: Icons.list_alt,
                 iconColor: TodoColors.serverColor(project.hexColor, c, min: 3.5),
@@ -507,12 +521,20 @@ class _Drawer extends StatelessWidget {
                   Navigator.pop(context);
                   state.select(ListSelection.project(project));
                 },
+                onLongPress: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ProjectSettingsScreen(project: project),
+                    ),
+                  );
+                },
               ),
-            if (state.labels.isNotEmpty)
+            if (state.savedFilters.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
                 child: Text(
-                  'Labels',
+                  'Filters',
                   style: TextStyle(
                     fontSize: TodoText.small,
                     fontWeight: FontWeight.w600,
@@ -520,6 +542,44 @@ class _Drawer extends StatelessWidget {
                   ),
                 ),
               ),
+            for (final filter in state.savedFilters)
+              _DrawerRow(
+                icon: Icons.filter_alt_outlined,
+                label: filter.title,
+                selected: state.selection.project?.id == filter.id,
+                onTap: () {
+                  Navigator.pop(context);
+                  state.select(ListSelection.project(filter));
+                },
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Labels',
+                      style: TextStyle(
+                        fontSize: TodoText.small,
+                        fontWeight: FontWeight.w600,
+                        color: c.secondaryText,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add, size: 20),
+                    color: c.secondaryText,
+                    tooltip: 'New label',
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const LabelsScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
             for (final label in state.labels)
               _DrawerRow(
                 icon: Icons.label_outline,
@@ -532,6 +592,19 @@ class _Drawer extends StatelessWidget {
                   state.select(ListSelection.tag(label));
                 },
               ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: c.divider),
+            _DrawerRow(
+              icon: Icons.groups_outlined,
+              label: 'Teams',
+              trailing: state.teams.length,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const TeamsScreen()),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -563,7 +636,11 @@ class _Drawer extends StatelessWidget {
     );
     if (title == null || title.trim().isEmpty) return;
     try {
-      await state.api!.createProject(title.trim());
+      final accent = Theme.of(context).extension<TodoThemeExtension>()?.colors.accent;
+      final hex = accent == null
+          ? null
+          : '#${(accent.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+      await state.api!.createProject(title.trim(), hexColor: hex);
       await state.refresh();
     } catch (e) {
       if (context.mounted) {
@@ -582,11 +659,13 @@ class _DrawerRow extends StatelessWidget {
     this.trailing,
     this.selected = false,
     this.iconColor,
+    this.onLongPress,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final int? trailing;
   final bool selected;
   final Color? iconColor;
@@ -596,6 +675,7 @@ class _DrawerRow extends StatelessWidget {
     final c = TodoColors.of(context);
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         height: 44,

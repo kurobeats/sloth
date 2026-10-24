@@ -185,6 +185,12 @@ class VikunjaApi {
     return VikunjaUser.fromJson(res as Map<String, dynamic>);
   }
 
+  /// Saves the user's general settings and returns the refreshed user.
+  Future<VikunjaUser> saveUserSettings(VikunjaUserSettings settings) async {
+    await _send('POST', '/user/settings/general', body: settings.toJson());
+    return currentUser();
+  }
+
   Future<List<VikunjaProject>> projects() =>
       _list('/projects', VikunjaProject.fromJson, query: {'is_archived': false});
 
@@ -194,6 +200,38 @@ class VikunjaApi {
   }
 
   Future<List<VikunjaLabel>> labels() => _list('/labels', VikunjaLabel.fromJson);
+
+  Future<VikunjaLabel> createLabel(String title,
+      {String hexColor = '', String description = ''}) async {
+    final res = await _send('PUT', '/labels', body: {
+      'title': title,
+      'hex_color': hexColor,
+      'description': description,
+    });
+    return VikunjaLabel.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<VikunjaLabel> updateLabel(VikunjaLabel label,
+      {required String title, String? hexColor, String? description}) async {
+    final res = await _send('PUT', '/labels/${label.id}', body: {
+      'id': label.id,
+      'title': title,
+      'hex_color': hexColor ?? label.hexColor,
+      if (description != null) 'description': description,
+    });
+    return VikunjaLabel.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<void> deleteLabel(int id) => _send('DELETE', '/labels/$id');
+
+  /// Replaces the task's labels in one call.
+  Future<void> setTaskLabels(int taskId, List<VikunjaLabel> labels) =>
+      _send('POST', '/tasks/$taskId/labels/bulk', body: {
+        'labels': [
+          for (final label in labels)
+            {'id': label.id, 'title': label.title, 'hex_color': label.hexColor},
+        ],
+      });
 
   /// Tasks from every project the user can read.
   Future<List<VikunjaTask>> allTasks({
@@ -242,6 +280,153 @@ class VikunjaApi {
     final res = await _send('PUT', '/tasks/$taskId/comments',
         body: {'comment': comment});
     return VikunjaComment.fromJson(res as Map<String, dynamic>);
+  }
+
+  // ------------------------------------------------------------- teams -----
+
+  Future<List<VikunjaTeam>> teams({String? search}) => _list(
+        '/teams',
+        VikunjaTeam.fromJson,
+        query: {if (search != null && search.isNotEmpty) 's': search},
+      );
+
+  Future<VikunjaTeam> team(int id) async {
+    final res = await _send('GET', '/teams/$id');
+    return VikunjaTeam.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<VikunjaTeam> createTeam(String name, {String? description}) async {
+    final res = await _send('PUT', '/teams', body: {
+      'name': name,
+      if (description != null && description.isNotEmpty) 'description': description,
+    });
+    return VikunjaTeam.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<VikunjaTeam> updateTeam(int id, {required String name, String? description}) async {
+    final res = await _send('POST', '/teams/$id', body: {
+      'id': id,
+      'name': name,
+      'description': description ?? '',
+    });
+    return VikunjaTeam.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<void> deleteTeam(int id) => _send('DELETE', '/teams/$id');
+
+  /// Vikunja returns a team's members on the team itself; there is no
+  /// GET on /teams/{id}/members.
+  Future<List<VikunjaTeamMember>> teamMembers(int teamId) async {
+    final team = await this.team(teamId);
+    return team.members;
+  }
+
+  /// Adds an existing user to a team. Vikunja validates on `username`; the
+  /// returned member id is the membership id, not the user id.
+  Future<void> addTeamMember(int teamId, String username, {bool admin = false}) =>
+      _send('PUT', '/teams/$teamId/members',
+          body: {'username': username, 'admin': admin});
+
+  Future<void> removeTeamMember(int teamId, String username) => _send(
+      'DELETE', '/teams/$teamId/members/${Uri.encodeComponent(username)}');
+
+  Future<void> toggleTeamMemberAdmin(int teamId, String username) => _send(
+      'POST', '/teams/$teamId/members/${Uri.encodeComponent(username)}/admin');
+
+  // --------------------------------------------------------- project shares --
+
+  Future<List<VikunjaProjectShare>> projectTeams(int projectId) async {
+    final res = await _send('GET', '/projects/$projectId/teams',
+        query: {'per_page': 50});
+    if (res is! List) return const [];
+    return res
+        .whereType<Map<String, dynamic>>()
+        .map(VikunjaProjectShare.fromTeam)
+        .toList();
+  }
+
+  Future<List<VikunjaProjectShare>> projectUsers(int projectId) async {
+    final res = await _send('GET', '/projects/$projectId/users',
+        query: {'per_page': 50});
+    if (res is! List) return const [];
+    return res
+        .whereType<Map<String, dynamic>>()
+        .map(VikunjaProjectShare.fromUser)
+        .toList();
+  }
+
+  Future<void> addProjectTeam(int projectId, int teamId, int permission) =>
+      _send('PUT', '/projects/$projectId/teams',
+          body: {'team_id': teamId, 'permission': permission});
+
+  Future<void> updateProjectTeam(int projectId, int teamId, int permission) =>
+      _send('POST', '/projects/$projectId/teams/$teamId',
+          body: {'team_id': teamId, 'permission': permission});
+
+  Future<void> removeProjectTeam(int projectId, int teamId) =>
+      _send('DELETE', '/projects/$projectId/teams/$teamId');
+
+  Future<void> addProjectUser(int projectId, int userId, int permission) =>
+      _send('PUT', '/projects/$projectId/users',
+          body: {'user_id': userId, 'permission': permission});
+
+  Future<void> updateProjectUser(int projectId, int userId, int permission) =>
+      _send('POST', '/projects/$projectId/users/$userId',
+          body: {'user_id': userId, 'permission': permission});
+
+  Future<void> removeProjectUser(int projectId, int userId) =>
+      _send('DELETE', '/projects/$projectId/users/$userId');
+
+  Future<List<VikunjaLinkShare>> linkShares(int projectId) async {
+    final res = await _send('GET', '/projects/$projectId/shares');
+    if (res is! List) return const [];
+    return res
+        .whereType<Map<String, dynamic>>()
+        .map(VikunjaLinkShare.fromJson)
+        .toList();
+  }
+
+  Future<VikunjaLinkShare> createLinkShare(int projectId,
+      {required String name, required int permission}) async {
+    final res = await _send('PUT', '/projects/$projectId/shares',
+        body: {'name': name, 'permission': permission});
+    return VikunjaLinkShare.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<void> deleteLinkShare(int projectId, int shareId) =>
+      _send('DELETE', '/projects/$projectId/shares/$shareId');
+
+  Future<List<VikunjaUser>> users(String query) async {
+    final res = await _send('GET', '/users', query: {'s': query});
+    if (res is! List) return const [];
+    return res.whereType<Map<String, dynamic>>().map(VikunjaUser.fromJson).toList();
+  }
+
+  Future<VikunjaProject> updateProject(VikunjaProject project,
+      {String? title,
+      String? description,
+      String? hexColor,
+      String? identifier,
+      bool? isFavorite,
+      bool? isArchived}) async {
+    final res = await _send('POST', '/projects/${project.id}', body: {
+      'id': project.id,
+      'title': title ?? project.title,
+      'description': description ?? project.description ?? '',
+      'hex_color': hexColor ?? project.hexColor,
+      if (identifier != null) 'identifier': identifier,
+      'is_favorite': isFavorite ?? project.isFavorite,
+      'is_archived': isArchived ?? project.isArchived,
+    });
+    return VikunjaProject.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<void> deleteProject(int id) => _send('DELETE', '/projects/$id');
+
+  Future<String?> frontendUrl() async {
+    final info = await this.info();
+    final url = info['frontend_url'];
+    return url is String && url.isNotEmpty ? url : null;
   }
 
   Future<VikunjaProject> createProject(String title, {String? hexColor}) async {

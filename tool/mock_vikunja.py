@@ -22,23 +22,23 @@ def iso(days=0, hours=0):
 USER = {"id": 1, "username": "joe", "name": "Joe Bloggs", "email": "joe@example.com"}
 
 LABELS = {
-    1: {"id": 1, "title": "errand", "hex_color": "1174e4"},
+    1: {"id": 1, "title": "errand", "hex_color": ""},
     2: {"id": 2, "title": "home", "hex_color": "22a06b"},
 }
 
 PROJECTS = [
     {
-        "id": 1, "title": "Tasks", "hex_color": "1174e4", "is_favorite": False,
+        "id": 1, "title": "Tasks", "hex_color": "", "is_favorite": False,
         "is_archived": False, "position": 1.0,
         "views": [{"id": 1, "title": "List", "view_kind": "list", "position": 1}],
     },
     {
-        "id": 2, "title": "Groceries", "hex_color": "e3008c", "is_favorite": True,
+        "id": 2, "title": "Groceries", "hex_color": "", "is_favorite": True,
         "is_archived": False, "position": 2.0,
         "views": [{"id": 2, "title": "List", "view_kind": "list", "position": 1}],
     },
     {
-        "id": 3, "title": "Work", "hex_color": "00838f", "is_favorite": False,
+        "id": 3, "title": "Work", "hex_color": "", "is_favorite": False,
         "is_archived": False, "position": 3.0,
         "views": [{"id": 3, "title": "List", "view_kind": "list", "position": 1}],
     },
@@ -77,6 +77,24 @@ TASKS = [
 
 COMMENTS = {1: [{"id": 1, "comment": "Rang them, next slot is Tuesday.",
                   "author": USER, "created": iso(-1)}]}
+
+USERS = [
+    USER,
+    {"id": 2, "username": "priya", "name": "Priya Raman", "email": "priya@example.com"},
+    {"id": 3, "username": "sam", "name": "Sam Okafor", "email": "sam@example.com"},
+]
+
+TEAMS = [
+    {"id": 1, "name": "Household", "description": "Shared chores",
+     "is_public": False, "external_id": "", "created": iso(-30), "updated": iso(-2),
+     "members": [dict(USER, admin=True), dict(USERS[1], admin=False)]},
+]
+
+PROJECT_TEAMS = {1: [{"id": 1, "name": "Household", "description": "Shared chores",
+                      "permission": 1, "members": TEAMS[0]["members"]}]}
+PROJECT_USERS = {1: [dict(USERS[2], permission=0)]}
+LINK_SHARES = {1: [{"id": 1, "hash": "abc123def456", "name": "Family link",
+                    "permission": 0, "password": ""}]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -129,6 +147,32 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/v1/projects/") and path.endswith("/tasks"):
             pid = int(path.split("/")[4])
             return self._json([t for t in TASKS if t["project_id"] == pid])
+        if path == "/api/v1/teams":
+            return self._json(TEAMS)
+        if path == "/api/v1/users":
+            needle = (q.get("s") or [""])[0].lower()
+            return self._json([u for u in USERS
+                               if needle in u["username"].lower()
+                               or needle in (u["name"] or "").lower()])
+        if path.startswith("/api/v1/teams/"):
+            parts = path.split("/")
+            tid = int(parts[4])
+            team = next((t for t in TEAMS if t["id"] == tid), None)
+            if team is None:
+                return self._json({"message": "not found"}, 404)
+            if len(parts) == 5:
+                return self._json(team)
+            if parts[5] == "members":
+                return self._json(team["members"])
+        if path.startswith("/api/v1/projects/"):
+            parts = path.split("/")
+            pid = int(parts[4])
+            if len(parts) == 6 and parts[5] == "teams":
+                return self._json(PROJECT_TEAMS.get(pid, []))
+            if len(parts) == 6 and parts[5] == "users":
+                return self._json(PROJECT_USERS.get(pid, []))
+            if len(parts) == 6 and parts[5] == "shares":
+                return self._json(LINK_SHARES.get(pid, []))
         if path.startswith("/api/v1/tasks/") and path.endswith("/comments"):
             tid = int(path.split("/")[4])
             return self._json(COMMENTS.get(tid, []))
@@ -147,6 +191,50 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"code": 1011, "message": "Wrong username or password."}, 412)
         if not self._authed():
             return
+        if path.startswith("/api/v1/teams/"):
+            parts = path.split("/")
+            tid = int(parts[4])
+            if len(parts) >= 7 and parts[6] == "admin":
+                uid = int(parts[5])
+                for team in TEAMS:
+                    for m in team["members"]:
+                        if m["id"] == uid:
+                            m["admin"] = not m["admin"]
+                return self._json({"message": "success"})
+            team = next((t for t in TEAMS if t["id"] == tid), None)
+            if team is None:
+                return self._json({"message": "not found"}, 404)
+            body = self._body()
+            team.update({k: v for k, v in body.items() if k in ("name", "description")})
+            return self._json(team)
+        if path.startswith("/api/v1/projects/"):
+            parts = path.split("/")
+            pid = int(parts[4])
+            body = self._body()
+            if len(parts) == 7 and parts[5] == "teams":
+                team_id = int(parts[6])
+                for share in PROJECT_TEAMS.get(pid, []):
+                    if share["id"] == team_id:
+                        share["permission"] = body.get("permission", share["permission"])
+                return self._json({"message": "success"})
+            if len(parts) == 7 and parts[5] == "users":
+                uid = int(parts[6])
+                if uid == 0:
+                    pass
+                for share in PROJECT_USERS.get(pid, []):
+                    if share["id"] == uid:
+                        share["permission"] = body.get("permission", share["permission"])
+                return self._json({"message": "success"})
+            if len(parts) == 5:
+                project = next((p for p in PROJECTS if p["id"] == pid), None)
+                if project is None:
+                    return self._json({"message": "not found"}, 404)
+                for k in ("title", "description", "hex_color", "is_favorite"):
+                    if k in body:
+                        project[k] = body[k]
+                if "is_archived" in body:
+                    project["is_archived"] = body["is_archived"]
+                return self._json(project)
         if path.startswith("/api/v1/tasks/"):
             tid = int(path.rsplit("/", 1)[1])
             body = self._body()
@@ -163,10 +251,46 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not self._authed():
             return
+        if path == "/api/v1/teams":
+            body = self._body()
+            new = {"id": max([t["id"] for t in TEAMS] or [0]) + 1,
+                   "name": body.get("name", "New team"),
+                   "description": body.get("description", ""),
+                   "is_public": False, "external_id": "",
+                   "created": iso(), "updated": iso(), "members": []}
+            TEAMS.append(new)
+            return self._json(new)
+        if path.startswith("/api/v1/projects/"):
+            parts = path.split("/")
+            pid = int(parts[4])
+            body = self._body()
+            if len(parts) == 6 and parts[5] == "teams":
+                team_id = body.get("team_id")
+                team = next((t for t in TEAMS if t["id"] == team_id), None)
+                share = {"id": team_id, "name": team["name"] if team else "Team",
+                         "description": team.get("description", "") if team else "",
+                         "permission": body.get("permission", 0),
+                         "members": team["members"] if team else []}
+                PROJECT_TEAMS.setdefault(pid, []).append(share)
+                return self._json(share)
+            if len(parts) == 6 and parts[5] == "users":
+                uid = body.get("user_id")
+                user = next((u for u in USERS if u["id"] == uid), None)
+                share = dict(user or USER, permission=body.get("permission", 0))
+                PROJECT_USERS.setdefault(pid, []).append(share)
+                return self._json(share)
+            if len(parts) == 6 and parts[5] == "shares":
+                share = {"id": max([s["id"] for s in LINK_SHARES.get(pid, [])] or [0]) + 1,
+                         "hash": "newhash0123456",
+                         "name": body.get("name", "Shared link"),
+                         "permission": body.get("permission", 0),
+                         "password": body.get("password", "")}
+                LINK_SHARES.setdefault(pid, []).append(share)
+                return self._json(share)
         if path == "/api/v1/projects":
             body = self._body()
             new = {"id": len(PROJECTS) + 1, "title": body.get("title", "New list"),
-                   "hex_color": "1174e4", "is_favorite": False, "is_archived": False,
+                   "hex_color": "", "is_favorite": False, "is_archived": False,
                    "position": 9.0,
                    "views": [{"id": 9, "title": "List", "view_kind": "list", "position": 1}]}
             PROJECTS.append(new)
@@ -177,6 +301,32 @@ class Handler(BaseHTTPRequestHandler):
             created = task(max(t["id"] for t in TASKS) + 1, pid, body["title"])
             TASKS.insert(0, created)
             return self._json(created)
+        if path == "/api/v1/teams":
+            return self._json(TEAMS)
+        if path == "/api/v1/users":
+            needle = (q.get("s") or [""])[0].lower()
+            return self._json([u for u in USERS
+                               if needle in u["username"].lower()
+                               or needle in (u["name"] or "").lower()])
+        if path.startswith("/api/v1/teams/"):
+            parts = path.split("/")
+            tid = int(parts[4])
+            team = next((t for t in TEAMS if t["id"] == tid), None)
+            if team is None:
+                return self._json({"message": "not found"}, 404)
+            if len(parts) == 5:
+                return self._json(team)
+            if parts[5] == "members":
+                return self._json(team["members"])
+        if path.startswith("/api/v1/projects/"):
+            parts = path.split("/")
+            pid = int(parts[4])
+            if len(parts) == 6 and parts[5] == "teams":
+                return self._json(PROJECT_TEAMS.get(pid, []))
+            if len(parts) == 6 and parts[5] == "users":
+                return self._json(PROJECT_USERS.get(pid, []))
+            if len(parts) == 6 and parts[5] == "shares":
+                return self._json(LINK_SHARES.get(pid, []))
         if path.startswith("/api/v1/tasks/") and path.endswith("/comments"):
             tid = int(path.split("/")[4])
             body = self._body()
@@ -190,6 +340,39 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not self._authed():
             return
+        if path.startswith("/api/v1/teams/"):
+            parts = path.split("/")
+            tid = int(parts[4])
+            if len(parts) >= 7 and parts[5] == "members":
+                username = parts[6]
+                for team in TEAMS:
+                    if team["id"] == tid:
+                        team["members"] = [m for m in team["members"]
+                                           if m["username"] != username]
+                return self._json({"message": "success"})
+            TEAMS[:] = [t for t in TEAMS if t["id"] != tid]
+            return self._json({"message": "success"})
+        if path.startswith("/api/v1/projects/"):
+            parts = path.split("/")
+            pid = int(parts[4])
+            if len(parts) == 7 and parts[5] == "teams":
+                team_id = int(parts[6])
+                PROJECT_TEAMS[pid] = [s for s in PROJECT_TEAMS.get(pid, [])
+                                      if s["id"] != team_id]
+                return self._json({"message": "success"})
+            if len(parts) == 7 and parts[5] == "users":
+                uid = int(parts[6])
+                PROJECT_USERS[pid] = [s for s in PROJECT_USERS.get(pid, [])
+                                      if s["id"] != uid]
+                return self._json({"message": "success"})
+            if len(parts) == 7 and parts[5] == "shares":
+                sid = int(parts[6])
+                LINK_SHARES[pid] = [s for s in LINK_SHARES.get(pid, [])
+                                    if s["id"] != sid]
+                return self._json({"message": "success"})
+            if len(parts) == 5:
+                PROJECTS[:] = [p for p in PROJECTS if p["id"] != pid]
+                return self._json({"message": "success"})
         if path.startswith("/api/v1/tasks/"):
             tid = int(path.rsplit("/", 1)[1])
             TASKS[:] = [t for t in TASKS if t["id"] != tid]

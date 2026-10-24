@@ -82,6 +82,23 @@ class TodoColors {
     return legible(raw, scheme.primaryBackground, min);
   }
 
+  /// Project colour choices for the colour picker: the scheme's accent and
+  /// hue rotations of it, so nothing outside the active theme is offered.
+  /// (Labels are the one exception -- their colours come from the server.)
+  static List<Color> swatches(TodoColors scheme) {
+    final hsl = HSLColor.fromColor(scheme.accent);
+    final colors = <Color>[
+      scheme.accent,
+      for (final delta in [38.0, 76.0, 140.0, 196.0, 262.0, 316.0])
+        hsl.withHue((hsl.hue + delta) % 360).toColor(),
+    ];
+    // Keep every swatch visible against the background.
+    return colors
+        .map((c) => legible(c, scheme.primaryBackground, 3.0))
+        .toSet()
+        .toList();
+  }
+
   /// Builds a scheme from raw Gogh colours, enforcing legibility minimums.
   factory TodoColors.derive({
     required String id,
@@ -273,13 +290,23 @@ class TodoText {
 }
 
 ThemeData buildTodoTheme(TodoColors c) {
+  // M3 surfaces are split into containers; map every one of them onto the
+  // scheme's two backgrounds so sheets, dialogs and menus stop falling back to
+  // the generated near-white default.
   final scheme =
       ColorScheme.fromSeed(seedColor: c.accent, brightness: c.brightness)
           .copyWith(
             primary: c.accent,
             onPrimary: c.onAccent,
+            secondary: c.accent,
             surface: c.primaryBackground,
             onSurface: c.primaryText,
+            onSurfaceVariant: c.secondaryText,
+            surfaceTint: Colors.transparent,
+            surfaceContainerLowest: c.primaryBackground,
+            surfaceContainerLow: c.secondaryBackground,
+            surfaceContainer: c.secondaryBackground,
+            surfaceContainerHigh: c.secondaryBackground,
             surfaceContainerHighest: c.secondaryBackground,
             outline: c.divider,
             outlineVariant: c.divider,
@@ -338,6 +365,39 @@ ThemeData buildTodoTheme(TodoColors c) {
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(foregroundColor: c.primaryText),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: c.secondaryBackground,
+      surfaceTintColor: Colors.transparent,
+      titleTextStyle: TextStyle(
+        color: c.primaryText,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+      ),
+      contentTextStyle: TextStyle(color: c.primaryText, fontSize: TodoText.medium),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: c.secondaryBackground,
+      modalBackgroundColor: c.secondaryBackground,
+      surfaceTintColor: Colors.transparent,
+      dragHandleColor: c.secondaryText.withValues(alpha: 0.5),
+      showDragHandle: true,
+    ),
+    cardTheme: CardThemeData(
+      color: c.secondaryBackground,
+      surfaceTintColor: Colors.transparent,
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: c.primaryText,
+      contentTextStyle: TextStyle(color: c.primaryBackground),
+      actionTextColor: c.accent,
+      behavior: SnackBarBehavior.floating,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: c.secondaryBackground,
+      selectedColor: c.accent.withValues(alpha: 0.16),
+      labelStyle: TextStyle(color: c.primaryText, fontSize: 13),
+      side: BorderSide(color: c.divider),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: c.secondaryBackground,

@@ -12,7 +12,9 @@ import 'todo_theme.dart';
 enum SmartList {
   // Names follow Vikunja's vocabulary: Favorite tasks, Upcoming, Assignees.
   dueToday('Due Today'),
-  favorites('Favorites'),
+  // "Favorite Tasks": Vikunja's own "Favorites" pseudo-project (-1) lists
+  // favorite *projects*, so the task list needs its own name.
+  favorites('Favorite Tasks'),
   upcoming('Upcoming'),
   allTasks('All Tasks'),
   assigned('Assigned to Me');
@@ -67,10 +69,14 @@ class AppState extends ChangeNotifier {
   VikunjaUser? user;
   String? baseUrl;
   Uint8List? avatar;
+
+  /// Last server used, so the login form can prefill it (e.g. after expiry).
+  String? lastServer;
   bool allowSelfSigned = false;
 
   List<VikunjaProject> projects = const [];
   List<VikunjaLabel> labels = const [];
+  List<VikunjaTeam> teams = const [];
   List<VikunjaTask> _allTasks = const [];
   Map<int, List<VikunjaTask>> _projectTasks = {};
 
@@ -143,11 +149,22 @@ class AppState extends ChangeNotifier {
       final allowBadCert =
           (await _storage.read(key: _kAllowSelfSigned)) == 'true';
       if (base != null && token != null && token.isNotEmpty) {
-        await _connect(
-          VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)..token = token,
-          persist: false,
-        );
-        await refresh();
+        lastServer = base;
+        try {
+          await _connect(
+            VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)..token = token,
+            persist: false,
+          );
+          await refresh();
+        } on VikunjaException catch (e) {
+          if (e.isUnauthorized) {
+            // Expired session: keep the server, drop the token, ask for login.
+            await _storage.delete(key: _kToken);
+            error = 'Your session expired. Please log in again.';
+          } else {
+            error = e.message;
+          }
+        }
       }
     } catch (e) {
       error = e.toString();
@@ -192,6 +209,7 @@ class AppState extends ChangeNotifier {
     api = client;
     user = me;
     baseUrl = client.baseUrl;
+    lastServer = client.baseUrl;
     avatar = await client.avatar(me.username);
     allowSelfSigned = client.allowSelfSigned;
     if (persist) {
@@ -205,11 +223,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    lastServer = api?.baseUrl ?? lastServer;
     api?.close();
     api = null;
     user = null;
     projects = const [];
     labels = const [];
+    teams = const [];
     avatar = null;
     _allTasks = const [];
     _projectTasks = {};
@@ -232,17 +252,23 @@ class AppState extends ChangeNotifier {
         client.projects(),
         client.allTasks(sortBy: 'due_date', orderBy: 'asc'),
         client.labels(),
+        client.teams(),
       ]);
       projects = results[0] as List<VikunjaProject>;
       _allTasks = results[1] as List<VikunjaTask>;
       labels = results[2] as List<VikunjaLabel>;
+      teams = results[3] as List<VikunjaTeam>;
       _projectTasks = {};
       if (selection.project != null) {
         await _loadProjectTasks();
       }
     } on VikunjaException catch (e) {
-      error = e.message;
-      if (e.isUnauthorized) await signOut();
+      if (e.isUnauthorized) {
+        await signOut();
+        error = 'Your session expired. Please log in again.';
+      } else {
+        error = e.message;
+      }
     } catch (e) {
       error = e.toString();
     } finally {
@@ -301,7 +327,11 @@ class AppState extends ChangeNotifier {
       case SmartList.favorites:
         return t.isFavorite;
       case SmartList.upcoming:
-        return t.dueDate != null;
+        // Vikunja's Upcoming view is a seven-day window from today.
+        final due = t.dueDate;
+        if (due == null) return false;
+        final diff = DateTime(due.year, due.month, due.day).difference(today).inDays;
+        return diff >= 0 && diff < 7;
       case SmartList.assigned:
         final me = user?.id;
         return me != null && t.assignees.any((a) => a.id == me);
@@ -350,7 +380,11 @@ class AppState extends ChangeNotifier {
         case SmartList.favorites:
           return t.isFavorite;
         case SmartList.upcoming:
-          return t.dueDate != null;
+          final due = t.dueDate;
+          if (due == null) return false;
+          final diff =
+              DateTime(due.year, due.month, due.day).difference(today).inDays;
+          return diff >= 0 && diff < 7;
         case SmartList.assigned:
           final me = user?.id;
           return me != null && t.assignees.any((a) => a.id == me);
@@ -358,6 +392,24 @@ class AppState extends ChangeNotifier {
           return true;
       }
     }).length;
+  }
+
+  /// Real projects. Vikunja serves saved filters as pseudo-projects with
+  /// negative ids; they are read-only views, not task containers.
+  List<VikunjaProject> get writableProjects =>
+      projects.where((p) => p.id > 0).toList();
+
+  List<VikunjaProject> get savedFilters =>
+      projects.where((p) => p.id < 0).toList();
+
+  /// Vikunja pins favorite projects above the rest.
+  List<VikunjaProject> get sortedProjects {
+    final list = [...writableProjects];
+    list.sort((a, b) {
+      if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
+      return a.position.compareTo(b.position);
+    });
+    return list;
   }
 
   int countForProject(VikunjaProject project) => _allTasks
@@ -424,8 +476,11 @@ class AppState extends ChangeNotifier {
   Future<VikunjaTask?> addTask(String title, {VikunjaProject? project}) async {
     final client = api;
     if (client == null) return null;
-    final target = project ?? selection.project ??
-        (projects.length == 1 ? projects.first : (projects.isNotEmpty ? projects.first : null));
+    final writable = writableProjects;
+    final target = project ??
+        (selection.project != null && selection.project!.id > 0
+            ? selection.project
+            : (writable.isNotEmpty ? writable.first : null));
     if (target == null) {
       error = 'Create a list first';
       notifyListeners();
@@ -498,6 +553,326 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleImportant(VikunjaTask task) =>
       mutate(task, (t) => t.isFavorite = !t.isFavorite);
+  // ------------------------------------------------------- teams & shares --
+
+  Future<String?> createTeam(String name, {String? description}) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final team = await client.createTeam(name, description: description);
+      teams = [...teams, team];
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  VikunjaUserSettings get userSettings =>
+      user?.settings ?? const VikunjaUserSettings();
+
+  Future<String?> createLabel(String title,
+      {String hexColor = '', String description = ''}) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final created =
+          await client.createLabel(title, hexColor: hexColor, description: description);
+      labels = [...labels, created];
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> updateLabel(VikunjaLabel label,
+      {required String title, String? hexColor, String? description}) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final saved = await client.updateLabel(label,
+          title: title, hexColor: hexColor, description: description);
+      labels = labels.map((l) => l.id == saved.id ? saved : l).toList();
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> deleteLabel(VikunjaLabel label) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.deleteLabel(label.id);
+      labels = labels.where((l) => l.id != label.id).toList();
+      for (var i = 0; i < _allTasks.length; i++) {
+        final t = _allTasks[i];
+        if (t.labels.any((l) => l.id == label.id)) {
+          _allTasks[i] = _copyTaskWithLabels(
+              t, t.labels.where((l) => l.id != label.id).toList());
+        }
+      }
+      if (selection.tag?.id == label.id) {
+        selection = const ListSelection.smart(SmartList.allTasks);
+      }
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  static VikunjaTask _copyTaskWithLabels(VikunjaTask t, List<VikunjaLabel> labels) =>
+      VikunjaTask(
+        id: t.id,
+        projectId: t.projectId,
+        title: t.title,
+        description: t.description,
+        done: t.done,
+        doneAt: t.doneAt,
+        dueDate: t.dueDate,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        priority: t.priority,
+        isFavorite: t.isFavorite,
+        percentDone: t.percentDone,
+        labels: labels,
+        assignees: t.assignees,
+        reminders: t.reminders,
+        repeatAfter: t.repeatAfter,
+        repeatMode: t.repeatMode,
+        hexColor: t.hexColor,
+        identifier: t.identifier,
+        created: t.created,
+        updated: t.updated,
+        position: t.position,
+        commentCount: t.commentCount,
+      );
+
+  Future<String?> setTaskLabels(VikunjaTask task, List<VikunjaLabel> labels) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.setTaskLabels(task.id, labels);
+      final updated = _copyTaskWithLabels(task, labels);
+      _replace(updated);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> saveUserSettings(VikunjaUserSettings settings) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final refreshed = await client.saveUserSettings(settings);
+      user = refreshed;
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> saveTeam(VikunjaTeam team,
+      {required String name, String? description}) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final saved = await client.updateTeam(team.id, name: name, description: description);
+      teams = teams.map((t) => t.id == saved.id ? saved : t).toList();
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> deleteTeam(VikunjaTeam team) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.deleteTeam(team.id);
+      teams = teams.where((t) => t.id != team.id).toList();
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<void> reloadTeams() async {
+    final client = api;
+    if (client == null) return;
+    try {
+      teams = await client.teams();
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      error = e.message;
+    }
+    notifyListeners();
+  }
+
+  Future<List<VikunjaTeamMember>> membersOf(int teamId) async {
+    try {
+      return await api?.teamMembers(teamId) ?? const [];
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      rethrow;
+    }
+  }
+
+  Future<String?> addTeamMember(int teamId, String username) async {
+    try {
+      await api?.addTeamMember(teamId, username);
+      await reloadTeams();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> removeTeamMember(int teamId, String username) async {
+    try {
+      await api?.removeTeamMember(teamId, username);
+      await reloadTeams();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> toggleTeamMemberAdmin(int teamId, String username) async {
+    try {
+      await api?.toggleTeamMemberAdmin(teamId, username);
+      await reloadTeams();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<List<VikunjaUser>> searchUsers(String query) async {
+    try {
+      return await api?.users(query) ?? const [];
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      rethrow;
+    }
+  }
+
+  Future<void> saveProject(
+    VikunjaProject project, {
+    String? title,
+    String? description,
+    String? hexColor,
+    String? identifier,
+    bool? isFavorite,
+    bool? isArchived,
+  }) async {
+    final client = api;
+    if (client == null) return;
+    try {
+      final saved = await client.updateProject(project,
+          title: title,
+          description: description,
+          hexColor: hexColor,
+          identifier: identifier,
+          isFavorite: isFavorite,
+          isArchived: isArchived);
+      projects = projects.map((p) => p.id == saved.id ? saved : p).toList();
+      if (selection.project?.id == saved.id) {
+        selection = ListSelection.project(saved);
+      }
+      notifyListeners();
+    } on VikunjaException catch (e) {
+      error = e.message;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> deleteProject(VikunjaProject project) async {
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.deleteProject(project.id);
+      projects = projects.where((p) => p.id != project.id).toList();
+      _allTasks = _allTasks.where((t) => t.projectId != project.id).toList();
+      if (selection.project?.id == project.id) {
+        selection = const ListSelection.smart(SmartList.allTasks);
+      }
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<void> refreshShares() async => notifyListeners();
+
+  Future<String?> shareWithTeam(int projectId, int teamId, int permission) async {
+    try {
+      await api?.addProjectTeam(projectId, teamId, permission);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> setTeamShare(int projectId, int teamId, int permission) async {
+    try {
+      await api?.updateProjectTeam(projectId, teamId, permission);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> unshareTeam(int projectId, int teamId) async {
+    try {
+      await api?.removeProjectTeam(projectId, teamId);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> shareWithUser(int projectId, int userId, int permission) async {
+    try {
+      await api?.addProjectUser(projectId, userId, permission);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> setUserShare(int projectId, int userId, int permission) async {
+    try {
+      await api?.updateProjectUser(projectId, userId, permission);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> unshareUser(int projectId, int userId) async {
+    try {
+      await api?.removeProjectUser(projectId, userId);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
 }
 
 /// Inherited access to the single [AppState] instance.

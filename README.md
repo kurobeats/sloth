@@ -29,6 +29,20 @@ frontend): Favorites, Upcoming, Projects, Labels, Assignees, Done,
 | "Add a new task…" bar | `PUT /projects/{id}/tasks` |
 | Sidebar avatar | `GET /avatar/{username}?size=128` |
 
+### Projects, teams, labels, account
+
+| Screen | Vikunja API |
+|---|---|
+| Project settings (title, description, identifier, colour, favorite, archive, delete) | `POST /projects/{id}`, `DELETE /projects/{id}` |
+| Share with users | `GET/PUT/POST/DELETE /projects/{id}/users[/{userID}]` |
+| Share with teams | `GET/PUT/POST/DELETE /projects/{id}/teams[/{teamID}]` |
+| Link shares (create, copy URL, delete) | `GET/PUT /projects/{id}/shares`, `DELETE …/shares/{id}` |
+| Teams list / create / rename / delete | `GET/PUT/POST/DELETE /teams[/{id}]` |
+| Team members (add, remove, admin toggle) | `GET /teams/{id}` (members are embedded), `PUT/DELETE /teams/{id}/members…`, `POST /teams/{id}/members/{username}/admin` |
+| Labels list / create / edit / delete | `GET/PUT/POST/DELETE /labels[/{id}]` |
+| Labels on a task | `POST /tasks/{id}/labels/bulk` |
+| Account settings (name, language, timezone, week start, default project, discoverability, reminders) | `POST /user/settings/general`, read from `GET /user` |
+
 Also: login to any Vikunja instance, search (`s=`), create projects, delete
 tasks, and the user's server avatar (initials when none is uploaded). Creating a
 task while a label is selected applies that label.
@@ -88,6 +102,24 @@ lib/
   widgets/            task row, add-a-task bar
 ```
 
+## Notes from testing against a live instance (Vikunja v2.7.1)
+
+- `/tasks` rejects `expand=labels,assignees,reminders`; those come back by default.
+  Valid expand values are `subtasks, buckets, reactions, comments, comment_count,
+  time_entries_count, is_unread`.
+- `is_favorite` is a task field but **not** a valid filter field, so Favorites is
+  computed client-side. Vikunja's own "Favorites" pseudo-project (−1) lists favorite
+  *projects*, which is why the task list here is called "Favorite Tasks".
+- Saved filters are served as pseudo-projects with negative ids; they are read-only
+  views and are listed under "Filters", never as task targets.
+- Team members are embedded in `GET /teams/{id}`; there is no GET on `/members`.
+  Adding a member validates on `username` (an `id` alone returns `Invalid Data`), and
+  the returned id is the membership id.
+- `GET /users?s=` only returns users who enabled "Discoverable by name".
+- Avatars live at `/avatar/{username}` (the OpenAPI doc's `/{username}/avatar` 404s).
+- Sessions expire per the server's `jwtTTL`; the app keeps the server URL, drops the
+  token and asks for a fresh login.
+
 ## Deliberate gaps
 
 - No offline cache: the app reads from the server each launch; a failed write rolls
@@ -95,9 +127,9 @@ lib/
 - No background reminders/notifications. Reminder times are stored on the server
   (Vikunja's own notifier is authoritative).
 - No subtasks/steps (Vikunja has task *relations*, not checklists). Use the note field.
-- No attachments, comments UI, kanban/table/gantt views, or labels editing.
-- Cleartext HTTP is blocked by Android's default policy; a `http://` server needs a
-  network-security config addition.
+- No attachments, comments UI, assignee editing, task relations, kanban/table/gantt
+  views, or link-share passwords.
+- Cleartext HTTP is blocked in release builds; debug builds allow it for local mocks.
 - The launcher icon is the Flutter default.
 
 ## Install

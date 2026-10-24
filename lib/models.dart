@@ -25,18 +25,116 @@ String _hex(dynamic v) {
   return s.startsWith('#') ? s : '#$s';
 }
 
+class VikunjaUserSettings {
+  const VikunjaUserSettings({
+    this.name = '',
+    this.language = 'en',
+    this.timezone = 'GMT',
+    this.weekStart = 0,
+    this.defaultProjectId = 0,
+    this.discoverableByName = false,
+    this.discoverableByEmail = false,
+    this.emailRemindersEnabled = false,
+    this.overdueRemindersEnabled = false,
+    this.overdueRemindersTime = '9:00',
+  });
+
+  final String name;
+  final String language;
+  final String timezone;
+
+  /// 0 = Sunday, 1 = Monday.
+  final int weekStart;
+
+  /// 0 means no default project.
+  final int defaultProjectId;
+
+  final bool discoverableByName;
+  final bool discoverableByEmail;
+  final bool emailRemindersEnabled;
+  final bool overdueRemindersEnabled;
+
+  /// "H:mm", the format Vikunja stores.
+  final String overdueRemindersTime;
+
+  factory VikunjaUserSettings.fromJson(Map<String, dynamic> j) =>
+      VikunjaUserSettings(
+        name: j['name'] as String? ?? '',
+        language: (j['language'] as String?)?.isNotEmpty == true
+            ? j['language'] as String
+            : 'en',
+        timezone: (j['timezone'] as String?)?.isNotEmpty == true
+            ? j['timezone'] as String
+            : 'GMT',
+        weekStart: (j['week_start'] as num?)?.toInt() ?? 0,
+        defaultProjectId: (j['default_project_id'] as num?)?.toInt() ?? 0,
+        discoverableByName: j['discoverable_by_name'] as bool? ?? false,
+        discoverableByEmail: j['discoverable_by_email'] as bool? ?? false,
+        emailRemindersEnabled: j['email_reminders_enabled'] as bool? ?? false,
+        overdueRemindersEnabled:
+            j['overdue_tasks_reminders_enabled'] as bool? ?? false,
+        overdueRemindersTime: (j['overdue_tasks_reminders_time'] as String?)
+                ?.isNotEmpty ==
+            true
+            ? j['overdue_tasks_reminders_time'] as String
+            : '9:00',
+      );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'language': language,
+    'timezone': timezone,
+    'week_start': weekStart,
+    'default_project_id': defaultProjectId,
+    'discoverable_by_name': discoverableByName,
+    'discoverable_by_email': discoverableByEmail,
+    'email_reminders_enabled': emailRemindersEnabled,
+    'overdue_tasks_reminders_enabled': overdueRemindersEnabled,
+    'overdue_tasks_reminders_time': overdueRemindersTime,
+  };
+
+  VikunjaUserSettings copyWith({
+    String? name,
+    String? language,
+    String? timezone,
+    int? weekStart,
+    int? defaultProjectId,
+    bool? discoverableByName,
+    bool? discoverableByEmail,
+    bool? emailRemindersEnabled,
+    bool? overdueRemindersEnabled,
+    String? overdueRemindersTime,
+  }) =>
+      VikunjaUserSettings(
+        name: name ?? this.name,
+        language: language ?? this.language,
+        timezone: timezone ?? this.timezone,
+        weekStart: weekStart ?? this.weekStart,
+        defaultProjectId: defaultProjectId ?? this.defaultProjectId,
+        discoverableByName: discoverableByName ?? this.discoverableByName,
+        discoverableByEmail: discoverableByEmail ?? this.discoverableByEmail,
+        emailRemindersEnabled: emailRemindersEnabled ?? this.emailRemindersEnabled,
+        overdueRemindersEnabled: overdueRemindersEnabled ?? this.overdueRemindersEnabled,
+        overdueRemindersTime: overdueRemindersTime ?? this.overdueRemindersTime,
+      );
+}
+
 class VikunjaUser {
   const VikunjaUser({
     required this.id,
     required this.username,
     this.name,
     this.email,
+    this.isAdmin = false,
+    this.settings,
   });
 
   final int id;
   final String username;
   final String? name;
   final String? email;
+  final bool isAdmin;
+  final VikunjaUserSettings? settings;
 
   String get displayName => name ?? username;
 
@@ -53,6 +151,10 @@ class VikunjaUser {
     username: j['username'] as String? ?? '',
     name: _str(j['name']),
     email: _str(j['email']),
+    isAdmin: j['is_admin'] as bool? ?? false,
+    settings: j['settings'] is Map<String, dynamic>
+        ? VikunjaUserSettings.fromJson(j['settings'] as Map<String, dynamic>)
+        : null,
   );
 }
 
@@ -114,7 +216,7 @@ class VikunjaProject {
     required this.id,
     required this.title,
     this.description,
-    this.hexColor = '#1174E4',
+    this.hexColor = '',
     this.isFavorite = false,
     this.isArchived = false,
     this.views = const [],
@@ -292,5 +394,139 @@ class VikunjaComment {
         ? VikunjaUser.fromJson(j['author'] as Map<String, dynamic>)
         : null,
     created: _date(j['created']),
+  );
+}
+
+/// Vikunja permissions: 0 read, 1 write, 2 admin.
+String permissionLabel(int permission) => switch (permission) {
+  2 => 'Admin',
+  1 => 'Write',
+  _ => 'Read',
+};
+
+class VikunjaTeamMember {
+  const VikunjaTeamMember({
+    required this.id,
+    required this.username,
+    this.name,
+    this.email,
+    this.admin = false,
+  });
+
+  final int id;
+  final String username;
+  final String? name;
+  final String? email;
+  final bool admin;
+
+  String get displayName => (name == null || name!.isEmpty) ? username : name!;
+
+  String get initials {
+    final source = displayName.trim();
+    if (source.isEmpty) return '?';
+    final parts = source.split(RegExp(r'\s+'));
+    if (parts.length == 1) {
+      return source.substring(0, 1).toUpperCase();
+    }
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+  }
+
+  factory VikunjaTeamMember.fromJson(Map<String, dynamic> j) =>
+      VikunjaTeamMember(
+        id: j['id'] as int? ?? 0,
+        username: j['username'] as String? ?? '',
+        name: _str(j['name']),
+        email: _str(j['email']),
+        admin: j['admin'] as bool? ?? false,
+      );
+}
+
+class VikunjaTeam {
+  const VikunjaTeam({
+    required this.id,
+    required this.name,
+    this.description,
+    this.members = const [],
+    this.isPublic = false,
+  });
+
+  final int id;
+  final String name;
+  final String? description;
+  final List<VikunjaTeamMember> members;
+  final bool isPublic;
+
+  factory VikunjaTeam.fromJson(Map<String, dynamic> j) => VikunjaTeam(
+    id: j['id'] as int? ?? 0,
+    name: j['name'] as String? ?? '',
+    description: _str(j['description']),
+    isPublic: j['is_public'] as bool? ?? false,
+    members: (j['members'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(VikunjaTeamMember.fromJson)
+        .toList(),
+  );
+}
+
+/// A project shared with a user or a team.
+class VikunjaProjectShare {
+  const VikunjaProjectShare({
+    required this.displayName,
+    required this.permission,
+    this.teamId,
+    this.userId,
+    this.username,
+  });
+
+  final String displayName;
+  final int permission;
+  final int? teamId;
+  final int? userId;
+  final String? username;
+
+  bool get isTeam => teamId != null;
+
+  factory VikunjaProjectShare.fromTeam(Map<String, dynamic> j) =>
+      VikunjaProjectShare(
+        displayName: j['name'] as String? ?? 'Team',
+        permission: (j['permission'] as num?)?.toInt() ?? 0,
+        teamId: j['id'] as int?,
+      );
+
+  factory VikunjaProjectShare.fromUser(Map<String, dynamic> j) {
+    final name = _str(j['name']);
+    final username = _str(j['username']);
+    return VikunjaProjectShare(
+      displayName: (name == null || name.isEmpty) ? (username ?? 'User') : name,
+      permission: (j['permission'] as num?)?.toInt() ?? 0,
+      userId: j['id'] as int?,
+      username: username,
+    );
+  }
+}
+
+class VikunjaLinkShare {
+  const VikunjaLinkShare({
+    required this.id,
+    required this.hash,
+    required this.name,
+    required this.permission,
+    this.hasPassword = false,
+  });
+
+  final int id;
+  final String hash;
+  final String name;
+  final int permission;
+  final bool hasPassword;
+
+  factory VikunjaLinkShare.fromJson(Map<String, dynamic> j) => VikunjaLinkShare(
+    id: j['id'] as int? ?? 0,
+    hash: j['hash'] as String? ?? '',
+    name: (j['name'] as String?)?.trim().isNotEmpty == true
+        ? j['name'] as String
+        : 'Shared link',
+    permission: (j['permission'] as num?)?.toInt() ?? 0,
+    hasPassword: (_str(j['password']) ?? '').isNotEmpty,
   );
 }

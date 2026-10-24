@@ -6,6 +6,7 @@ import '../models.dart';
 import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
+import 'labels_screen.dart';
 
 /// Task detail: title with a check target, then note / due date / reminder /
 /// repeat / priority rows, with the creation date and delete in the footer.
@@ -232,6 +233,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   label: 'Project',
                   value: state.projectOf(task)?.title ?? task.identifier,
                   onTap: null,
+                ),
+                _RowValue(
+                  icon: Icons.label_outline,
+                  label: 'Labels',
+                  value: task.labels.isEmpty
+                      ? null
+                      : task.labels.map((l) => l.title).join(', '),
+                  onTap: () async {
+                    await showLabelPicker(context, state, task);
+                    final refreshed = await state.loadTask(task.id);
+                    if (refreshed != null && mounted) {
+                      setState(() => _task = refreshed);
+                    }
+                  },
                 ),
                 if (task.labels.isNotEmpty)
                   Padding(
