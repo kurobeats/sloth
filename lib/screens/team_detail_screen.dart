@@ -212,6 +212,20 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                       children: [
                         TextButton(
                           onPressed: () async {
+                            // Vikunja lets the last admin demote themselves,
+                            // which locks everyone out of team management.
+                            final admins =
+                                _members.where((m) => m.admin).length;
+                            if (member.admin && admins <= 1) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'A team needs at least one admin. '
+                                      'Promote someone else first.'),
+                                ),
+                              );
+                              return;
+                            }
                             await state.toggleTeamMemberAdmin(
                                 widget.teamId, member.username);
                             await _load();
