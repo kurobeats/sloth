@@ -294,11 +294,15 @@ class AppState extends ChangeNotifier {
         client.allTasks(sortBy: 'due_date', orderBy: 'asc'),
         client.labels(),
         client.teams(),
+        // Unread count for the drawer; a missing notification endpoint on an
+        // old server must not fail the whole refresh.
+        client.notifications().catchError((_) => <VikunjaNotification>[]),
       ]);
       projects = results[0] as List<VikunjaProject>;
       _allTasks = results[1] as List<VikunjaTask>;
       labels = results[2] as List<VikunjaLabel>;
       teams = results[3] as List<VikunjaTeam>;
+      notifications = results[4] as List<VikunjaNotification>;
       _projectTasks = {};
       if (selection.project != null) {
         await _loadProjectTasks();
