@@ -1,5 +1,3 @@
-# Sloth
-=======
 <p align="center">
   <img src="assets/sloth.png" alt="Sloth" width="160">
 </p>
