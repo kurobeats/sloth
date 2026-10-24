@@ -57,7 +57,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(Icons.check_circle_outline, size: 56, color: c.accent),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'assets/sloth.png',
+                        width: 84,
+                        height: 84,
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Sloth',
