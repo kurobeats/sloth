@@ -72,9 +72,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       _saving = false;
       if (error == null) _settings = state.userSettings;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error ?? 'Settings saved')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(error ?? 'Settings saved')));
   }
 
   Future<void> _pickReminderTime() async {
@@ -85,9 +84,12 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     );
     final picked = await showTimePicker(context: context, initialTime: initial);
     if (picked == null) return;
-    setState(() => _settings = _settings.copyWith(
-          overdueRemindersTime: '${picked.hour}:${picked.minute.toString().padLeft(2, '0')}',
-        ));
+    setState(
+      () => _settings = _settings.copyWith(
+        overdueRemindersTime:
+            '${picked.hour}:${picked.minute.toString().padLeft(2, '0')}',
+      ),
+    );
   }
 
   @override
@@ -104,7 +106,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             onPressed: _saving ? null : _save,
             child: _saving
                 ? const SizedBox(
-                    width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('Save'),
           ),
         ],
@@ -133,7 +138,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 DropdownMenuItem(value: code, child: Text(label)),
             ],
             onChanged: (value) => setState(
-                () => _settings = _settings.copyWith(language: value ?? 'en')),
+              () => _settings = _settings.copyWith(language: value ?? 'en'),
+            ),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -146,7 +152,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<int>(
-            initialValue: projects.any((p) => p.id == _settings.defaultProjectId)
+            initialValue:
+                projects.any((p) => p.id == _settings.defaultProjectId)
                 ? _settings.defaultProjectId
                 : 0,
             decoration: const InputDecoration(
@@ -159,62 +166,84 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               for (final project in projects)
                 DropdownMenuItem(value: project.id, child: Text(project.title)),
             ],
-            onChanged: (value) => setState(() =>
-                _settings = _settings.copyWith(defaultProjectId: value ?? 0)),
+            onChanged: (value) => setState(
+              () =>
+                  _settings = _settings.copyWith(defaultProjectId: value ?? 0),
+            ),
           ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.weekStart == 1,
             activeThumbColor: c.accent,
-            title: Text('Week starts on Monday',
-                style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Week starts on Monday',
+              style: TextStyle(color: c.primaryText),
+            ),
             onChanged: (v) => setState(
-                () => _settings = _settings.copyWith(weekStart: v ? 1 : 0)),
+              () => _settings = _settings.copyWith(weekStart: v ? 1 : 0),
+            ),
           ),
           Divider(color: c.divider, height: 24),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.discoverableByName,
             activeThumbColor: c.accent,
-            title: Text('Discoverable by name',
-                style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Discoverable by name',
+              style: TextStyle(color: c.primaryText),
+            ),
             onChanged: (v) => setState(
-                () => _settings = _settings.copyWith(discoverableByName: v)),
+              () => _settings = _settings.copyWith(discoverableByName: v),
+            ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.discoverableByEmail,
             activeThumbColor: c.accent,
-            title: Text('Discoverable by email',
-                style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Discoverable by email',
+              style: TextStyle(color: c.primaryText),
+            ),
             onChanged: (v) => setState(
-                () => _settings = _settings.copyWith(discoverableByEmail: v)),
+              () => _settings = _settings.copyWith(discoverableByEmail: v),
+            ),
           ),
           Divider(color: c.divider, height: 24),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.emailRemindersEnabled,
             activeThumbColor: c.accent,
-            title: Text('Email reminders',
-                style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Email reminders',
+              style: TextStyle(color: c.primaryText),
+            ),
             onChanged: (v) => setState(
-                () => _settings = _settings.copyWith(emailRemindersEnabled: v)),
+              () => _settings = _settings.copyWith(emailRemindersEnabled: v),
+            ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _settings.overdueRemindersEnabled,
             activeThumbColor: c.accent,
-            title: Text('Overdue task reminders',
-                style: TextStyle(color: c.primaryText)),
-            onChanged: (v) => setState(() =>
-                _settings = _settings.copyWith(overdueRemindersEnabled: v)),
+            title: Text(
+              'Overdue task reminders',
+              style: TextStyle(color: c.primaryText),
+            ),
+            onChanged: (v) => setState(
+              () => _settings = _settings.copyWith(overdueRemindersEnabled: v),
+            ),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text('Reminder time', style: TextStyle(color: c.primaryText)),
-            subtitle: Text(_settings.overdueRemindersTime,
-                style: TextStyle(fontSize: 12, color: c.secondaryText)),
+            title: Text(
+              'Reminder time',
+              style: TextStyle(color: c.primaryText),
+            ),
+            subtitle: Text(
+              _settings.overdueRemindersTime,
+              style: TextStyle(fontSize: 12, color: c.secondaryText),
+            ),
             trailing: Icon(Icons.access_time, color: c.secondaryText),
             onTap: _pickReminderTime,
           ),

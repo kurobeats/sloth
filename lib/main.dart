@@ -45,8 +45,8 @@ class _SlothAppState extends State<SlothApp> {
           home: _state.restoring
               ? const Scaffold(body: Center(child: CircularProgressIndicator()))
               : _state.isSignedIn
-                  ? const HomeScreen()
-                  : const LoginScreen(),
+              ? const HomeScreen()
+              : const LoginScreen(),
         ),
       ),
     );

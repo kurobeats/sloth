@@ -56,7 +56,9 @@ class _EntryBarState extends State<EntryBar> {
         color: c.primaryBackground,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: c.brightness == Brightness.dark ? 0.5 : 0.08),
+            color: Colors.black.withValues(
+              alpha: c.brightness == Brightness.dark ? 0.5 : 0.08,
+            ),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -69,14 +71,20 @@ class _EntryBarState extends State<EntryBar> {
           child: Row(
             children: [
               const SizedBox(width: 8),
-              Icon(Icons.radio_button_unchecked,
-                  size: 20, color: c.secondaryText),
+              Icon(
+                Icons.radio_button_unchecked,
+                size: 20,
+                color: c.secondaryText,
+              ),
               const SizedBox(width: 20),
               Expanded(
                 child: TextField(
                   controller: _controller,
                   focusNode: _focus,
-                  style: TextStyle(fontSize: TodoText.big, color: c.primaryText),
+                  style: TextStyle(
+                    fontSize: TodoText.big,
+                    color: c.primaryText,
+                  ),
                   textInputAction: TextInputAction.done,
                   textCapitalization: TextCapitalization.sentences,
                   onSubmitted: (_) => _submit(),

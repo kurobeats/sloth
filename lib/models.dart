@@ -73,9 +73,8 @@ class VikunjaUserSettings {
         emailRemindersEnabled: j['email_reminders_enabled'] as bool? ?? false,
         overdueRemindersEnabled:
             j['overdue_tasks_reminders_enabled'] as bool? ?? false,
-        overdueRemindersTime: (j['overdue_tasks_reminders_time'] as String?)
-                ?.isNotEmpty ==
-            true
+        overdueRemindersTime:
+            (j['overdue_tasks_reminders_time'] as String?)?.isNotEmpty == true
             ? j['overdue_tasks_reminders_time'] as String
             : '9:00',
       );
@@ -104,19 +103,19 @@ class VikunjaUserSettings {
     bool? emailRemindersEnabled,
     bool? overdueRemindersEnabled,
     String? overdueRemindersTime,
-  }) =>
-      VikunjaUserSettings(
-        name: name ?? this.name,
-        language: language ?? this.language,
-        timezone: timezone ?? this.timezone,
-        weekStart: weekStart ?? this.weekStart,
-        defaultProjectId: defaultProjectId ?? this.defaultProjectId,
-        discoverableByName: discoverableByName ?? this.discoverableByName,
-        discoverableByEmail: discoverableByEmail ?? this.discoverableByEmail,
-        emailRemindersEnabled: emailRemindersEnabled ?? this.emailRemindersEnabled,
-        overdueRemindersEnabled: overdueRemindersEnabled ?? this.overdueRemindersEnabled,
-        overdueRemindersTime: overdueRemindersTime ?? this.overdueRemindersTime,
-      );
+  }) => VikunjaUserSettings(
+    name: name ?? this.name,
+    language: language ?? this.language,
+    timezone: timezone ?? this.timezone,
+    weekStart: weekStart ?? this.weekStart,
+    defaultProjectId: defaultProjectId ?? this.defaultProjectId,
+    discoverableByName: discoverableByName ?? this.discoverableByName,
+    discoverableByEmail: discoverableByEmail ?? this.discoverableByEmail,
+    emailRemindersEnabled: emailRemindersEnabled ?? this.emailRemindersEnabled,
+    overdueRemindersEnabled:
+        overdueRemindersEnabled ?? this.overdueRemindersEnabled,
+    overdueRemindersTime: overdueRemindersTime ?? this.overdueRemindersTime,
+  );
 }
 
 class VikunjaUser {
@@ -168,7 +167,8 @@ class VikunjaUser {
 }
 
 extension on String {
-  String characters(int n) => substring(0, length < n ? length : n).toUpperCase();
+  String characters(int n) =>
+      substring(0, length < n ? length : n).toUpperCase();
 }
 
 class VikunjaLabel {
@@ -188,8 +188,11 @@ class VikunjaLabel {
     hexColor: _hex(j['hex_color']),
   );
 
-  Map<String, dynamic> toJson() =>
-      {'id': id, 'title': title, 'hex_color': hexColor};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'hex_color': hexColor,
+  };
 }
 
 class VikunjaReminder {
@@ -200,7 +203,9 @@ class VikunjaReminder {
   factory VikunjaReminder.fromJson(Map<String, dynamic> j) =>
       VikunjaReminder(reminder: _date(j['reminder']) ?? DateTime(2001));
 
-  Map<String, dynamic> toJson() => {'reminder': reminder.toUtc().toIso8601String()};
+  Map<String, dynamic> toJson() => {
+    'reminder': reminder.toUtc().toIso8601String(),
+  };
 }
 
 class VikunjaView {
@@ -215,11 +220,34 @@ class VikunjaView {
   final String viewKind;
 
   bool get isList => viewKind == 'list';
+  bool get isKanban => viewKind == 'kanban';
 
   factory VikunjaView.fromJson(Map<String, dynamic> j) => VikunjaView(
     id: j['id'] as int? ?? 0,
     title: j['title'] as String? ?? '',
     viewKind: j['view_kind'] as String? ?? 'list',
+  );
+}
+
+/// A kanban column. Vikunja returns these with their tasks embedded from
+/// `GET /projects/{id}/views/{kanbanView}/tasks`.
+class VikunjaBucket {
+  const VikunjaBucket({
+    required this.id,
+    required this.title,
+    this.tasks = const [],
+  });
+
+  final int id;
+  final String title;
+  final List<VikunjaTask> tasks;
+
+  factory VikunjaBucket.fromJson(Map<String, dynamic> j) => VikunjaBucket(
+    id: j['id'] as int? ?? 0,
+    title: j['title'] as String? ?? '',
+    tasks: (j['tasks'] as List? ?? const [])
+        .map((e) => VikunjaTask.fromJson(e as Map<String, dynamic>))
+        .toList(),
   );
 }
 
@@ -247,8 +275,18 @@ class VikunjaProject {
   /// Preferred view for plain task listing.
   int? get listViewId {
     final list = views.where((v) => v.isList).toList();
-    return (list.isNotEmpty ? list.first : (views.isNotEmpty ? views.first : null))
+    return (list.isNotEmpty
+            ? list.first
+            : (views.isNotEmpty ? views.first : null))
         ?.id;
+  }
+
+  /// Kanban view, when the project has one.
+  int? get kanbanViewId {
+    for (final v in views) {
+      if (v.isKanban) return v.id;
+    }
+    return null;
   }
 
   Map<String, dynamic> toJson() => {
@@ -393,16 +431,24 @@ class VikunjaTask {
     'description': description ?? '',
     'done': done,
     if (doneAt != null) 'done_at': doneAt!.toUtc().toIso8601String(),
-    'due_date': dueDate?.toUtc().toIso8601String() ?? DateTime.utc(1).toIso8601String(),
-    'start_date': startDate?.toUtc().toIso8601String() ?? DateTime.utc(1).toIso8601String(),
-    'end_date': endDate?.toUtc().toIso8601String() ?? DateTime.utc(1).toIso8601String(),
+    'due_date':
+        dueDate?.toUtc().toIso8601String() ?? DateTime.utc(1).toIso8601String(),
+    'start_date':
+        startDate?.toUtc().toIso8601String() ??
+        DateTime.utc(1).toIso8601String(),
+    'end_date':
+        endDate?.toUtc().toIso8601String() ?? DateTime.utc(1).toIso8601String(),
     'priority': priority,
     'is_favorite': isFavorite,
     'percent_done': percentDone,
     'repeat_after': repeatAfter,
     'repeat_mode': repeatMode,
-    'labels': labels.map((l) => {'id': l.id, 'title': l.title, 'hex_color': l.hexColor}).toList(),
-    'assignees': assignees.map((u) => {'id': u.id, 'username': u.username}).toList(),
+    'labels': labels
+        .map((l) => {'id': l.id, 'title': l.title, 'hex_color': l.hexColor})
+        .toList(),
+    'assignees': assignees
+        .map((u) => {'id': u.id, 'username': u.username})
+        .toList(),
     'reminders': reminders.map((r) => r.toJson()).toList(),
   };
 }
@@ -461,7 +507,8 @@ class VikunjaTeamMember {
     if (parts.length == 1) {
       return source.substring(0, 1).toUpperCase();
     }
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
   }
 
   factory VikunjaTeamMember.fromJson(Map<String, dynamic> j) =>
@@ -628,47 +675,73 @@ class VikunjaRelation {
     required this.done,
   });
 
-  final int kind;
+  /// The server's relation kind name, e.g. `subtask` or `related`. Vikunja
+  /// accepts and returns these names; older builds used numbers, which
+  /// [_kindFromKey] maps onto the same names.
+  final String kind;
   final int taskId;
   final String title;
   final bool done;
 
-  static const subtask = 1;
-  static const parentTask = 2;
-  static const related = 3;
-  static const duplicateOf = 4;
+  static const subtask = 'subtask';
+  static const parentTask = 'parenttask';
+  static const related = 'related';
+  static const duplicateOf = 'duplicateof';
 
-  static String label(int kind) => switch (kind) {
+  static String label(String kind) => switch (kind) {
     subtask => 'Subtask',
     parentTask => 'Parent task',
     related => 'Related',
     duplicateOf => 'Duplicate of',
-    5 => 'Duplicates',
-    6 => 'Blocking',
-    7 => 'Blocked by',
-    8 => 'Precedes',
-    9 => 'Follows',
-    10 => 'Copied from',
-    11 => 'Copied to',
+    'duplicates' => 'Duplicates',
+    'blocking' => 'Blocking',
+    'blocked' => 'Blocked by',
+    'precedes' => 'Precedes',
+    'follows' => 'Follows',
+    'copiedfrom' => 'Copied from',
+    'copiedto' => 'Copied to',
     _ => 'Relation',
   };
 
   static const selectableKinds = [subtask, parentTask, related, duplicateOf];
+
+  /// `other_task_id` style keys come back as names on current servers and as
+  /// 1..11 numbers on old ones.
+  static String _kindFromKey(String key) {
+    const byNumber = {
+      '1': subtask,
+      '2': parentTask,
+      '3': related,
+      '4': duplicateOf,
+      '5': 'duplicates',
+      '6': 'blocking',
+      '7': 'blocked',
+      '8': 'precedes',
+      '9': 'follows',
+      '10': 'copiedfrom',
+      '11': 'copiedto',
+    };
+    final mapped = byNumber[key];
+    if (mapped != null) return mapped;
+    return key.toLowerCase();
+  }
 }
 
 List<VikunjaRelation> parseRelations(Map<String, dynamic>? relatedTasks) {
   if (relatedTasks == null) return const [];
   final out = <VikunjaRelation>[];
   for (final entry in relatedTasks.entries) {
-    final kind = int.tryParse(entry.key) ?? 0;
+    final kind = VikunjaRelation._kindFromKey(entry.key);
     for (final task in (entry.value as List? ?? const [])) {
       if (task is! Map<String, dynamic>) continue;
-      out.add(VikunjaRelation(
-        kind: kind,
-        taskId: (task['id'] as num?)?.toInt() ?? 0,
-        title: task['title'] as String? ?? '',
-        done: task['done'] as bool? ?? false,
-      ));
+      out.add(
+        VikunjaRelation(
+          kind: kind,
+          taskId: (task['id'] as num?)?.toInt() ?? 0,
+          title: task['title'] as String? ?? '',
+          done: task['done'] as bool? ?? false,
+        ),
+      );
     }
   }
   return out;

@@ -52,8 +52,7 @@ class OfflineBanner extends StatelessWidget {
 /// Shows the offline explanation instead of letting an edit silently fail.
 bool requireOnline(BuildContext context, AppState state) {
   if (state.canEdit) return true;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(AppState.offlineEditError)),
-  );
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(AppState.offlineEditError)));
   return false;
 }

@@ -75,7 +75,8 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     } on VikunjaException catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -85,7 +86,9 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       title: _title.text.trim(),
       description: _description.text.trim(),
       hexColor: _hexColor,
-      identifier: identifier ?? (_identifier.text.trim().isEmpty ? null : _identifier.text.trim()),
+      identifier:
+          identifier ??
+          (_identifier.text.trim().isEmpty ? null : _identifier.text.trim()),
       isFavorite: _favorite,
       isArchived: _archived,
     );
@@ -101,10 +104,15 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     if (!mounted) return;
     final permission = await _pickPermission(context, 1);
     if (permission == null) return;
-    final error = await state.shareWithUser(widget.project.id, user.id, permission);
+    final error = await state.shareWithUser(
+      widget.project.id,
+      user.id,
+      permission,
+    );
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     await _load();
   }
@@ -124,8 +132,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('Share with team',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              child: Text(
+                'Share with team',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
             ),
             for (final t in state.teams)
               ListTile(
@@ -141,42 +151,69 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     if (!mounted) return;
     final permission = await _pickPermission(context, 1);
     if (permission == null) return;
-    final error = await state.shareWithTeam(widget.project.id, team.id, permission);
+    final error = await state.shareWithTeam(
+      widget.project.id,
+      team.id,
+      permission,
+    );
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     await _load();
   }
 
   Future<void> _createLink(AppState state) async {
     final name = TextEditingController();
+    final password = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('New link share'),
-        content: TextField(
-          controller: name,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Name'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            TextField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password',
+                helperText:
+                    'Optional — visitors must enter it to open the link.',
+              ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Create'),
+          ),
         ],
       ),
     );
     if (created != true || !mounted) return;
     final permission = await _pickPermission(context, 0);
     if (permission == null) return;
-    try {
-      await state.api?.createLinkShare(widget.project.id,
-          name: name.text.trim().isEmpty ? 'Shared link' : name.text.trim(),
-          permission: permission);
-    } on VikunjaException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+    final error = await state.createLinkShare(
+      widget.project.id,
+      name.text.trim().isEmpty ? 'Shared link' : name.text.trim(),
+      permission,
+      password: password.text.trim(),
+    );
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     await _load();
   }
@@ -208,8 +245,14 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                       'its contents? This includes all tasks and CANNOT BE UNDONE!',
                     ),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Delete'),
+                      ),
                     ],
                   ),
                 );
@@ -217,7 +260,8 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                 final error = await state.deleteProject(widget.project);
                 if (!context.mounted) return;
                 if (error != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(error)));
                 } else {
                   Navigator.of(context).pop();
                 }
@@ -235,14 +279,23 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
           TextField(
             controller: _title,
             style: TextStyle(
-                fontSize: TodoText.xxl, fontWeight: FontWeight.w600, color: c.primaryText),
-            decoration: const InputDecoration(labelText: 'Title', border: InputBorder.none),
+              fontSize: TodoText.xxl,
+              fontWeight: FontWeight.w600,
+              color: c.primaryText,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              border: InputBorder.none,
+            ),
           ),
           TextField(
             controller: _description,
             maxLines: null,
             style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
-            decoration: const InputDecoration(labelText: 'Description', border: InputBorder.none),
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              border: InputBorder.none,
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
@@ -250,13 +303,16 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(
               labelText: 'Project Identifier',
-              helperText: 'Identifies tasks across projects; leave empty to disable.',
+              helperText:
+                  'Identifies tasks across projects; leave empty to disable.',
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
-          Text('Colour',
-              style: TextStyle(fontSize: TodoText.small, color: c.secondaryText)),
+          Text(
+            'Colour',
+            style: TextStyle(fontSize: TodoText.small, color: c.secondaryText),
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 10,
@@ -272,7 +328,9 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                       color: swatch,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: _toHex(swatch).toUpperCase() == _hexColor.toUpperCase()
+                        color:
+                            _toHex(swatch).toUpperCase() ==
+                                _hexColor.toUpperCase()
                             ? c.primaryText
                             : Colors.transparent,
                         width: 2,
@@ -297,7 +355,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             contentPadding: EdgeInsets.zero,
             value: _archived,
             activeThumbColor: c.accent,
-            title: Text('Archive this project', style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Archive this project',
+              style: TextStyle(color: c.primaryText),
+            ),
             subtitle: Text(
               'Archived projects cannot be edited or receive new tasks.',
               style: TextStyle(fontSize: 12, color: c.secondaryText),
@@ -308,7 +369,13 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             },
           ),
           const SizedBox(height: 8),
-          if (_loading) const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator())),
+          if (_loading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              ),
+            ),
           _SectionHeader(
             label: 'Share with users',
             action: 'Add user',
@@ -321,7 +388,11 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
               name: share.displayName,
               permission: share.permission,
               onPermission: (permission) async {
-                await state.setUserShare(widget.project.id, share.userId!, permission);
+                await state.setUserShare(
+                  widget.project.id,
+                  share.userId!,
+                  permission,
+                );
                 await _load();
               },
               onRemove: () async {
@@ -341,7 +412,11 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
               name: share.displayName,
               permission: share.permission,
               onPermission: (permission) async {
-                await state.setTeamShare(widget.project.id, share.teamId!, permission);
+                await state.setTeamShare(
+                  widget.project.id,
+                  share.teamId!,
+                  permission,
+                );
                 await _load();
               },
               onRemove: () async {
@@ -378,8 +453,9 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                         ClipboardData(text: '${prefix}share/${link.hash}/auth'),
                       );
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('Link copied')));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link copied')),
+                        );
                       }
                     },
                   ),
@@ -387,7 +463,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                     tooltip: 'Delete link share',
                     icon: Icon(Icons.close, size: 18, color: c.secondaryText),
                     onPressed: () async {
-                      await state.api?.deleteLinkShare(widget.project.id, link.id);
+                      await state.api?.deleteLinkShare(
+                        widget.project.id,
+                        link.id,
+                      );
                       await _load();
                     },
                   ),
@@ -403,15 +482,23 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
 
   Widget _emptyRow(String text) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(text,
-            style: TextStyle(
-                fontSize: TodoText.medium, color: TodoColors.of(context).secondaryText)),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: TodoText.medium,
+        color: TodoColors.of(context).secondaryText,
+      ),
+    ),
+  );
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.label, required this.action, required this.onAction});
+  const _SectionHeader({
+    required this.label,
+    required this.action,
+    required this.onAction,
+  });
 
   final String label;
   final String action;
@@ -463,8 +550,10 @@ class _ShareRow extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: Icon(leading, color: c.accent),
       title: Text(name, style: TextStyle(color: c.primaryText)),
-      subtitle: Text(permissionLabel(permission),
-          style: TextStyle(fontSize: 12, color: c.secondaryText)),
+      subtitle: Text(
+        permissionLabel(permission),
+        style: TextStyle(fontSize: 12, color: c.secondaryText),
+      ),
       onTap: () async {
         final picked = await _pickPermission(context, permission);
         if (picked != null) onPermission(picked);
@@ -489,13 +578,17 @@ Future<int?> _pickPermission(BuildContext context, int current) {
         children: [
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text('Permission',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            child: Text(
+              'Permission',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
           ),
           for (var permission = 0; permission <= 2; permission++)
             ListTile(
               title: Text(permissionLabel(permission)),
-              trailing: permission == current ? Icon(Icons.check, size: 20, color: c.accent) : null,
+              trailing: permission == current
+                  ? Icon(Icons.check, size: 20, color: c.accent)
+                  : null,
               onTap: () => Navigator.pop(context, permission),
             ),
         ],

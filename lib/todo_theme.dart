@@ -78,7 +78,9 @@ class TodoColors {
     if (hex == null || hex.isEmpty) return scheme.accent;
     final value = int.tryParse(hex.replaceAll('#', ''), radix: 16);
     if (value == null) return scheme.accent;
-    final raw = Color(hex.replaceAll('#', '').length == 8 ? value : 0xFF000000 | value);
+    final raw = Color(
+      hex.replaceAll('#', '').length == 8 ? value : 0xFF000000 | value,
+    );
     return legible(raw, scheme.primaryBackground, min);
   }
 
@@ -294,23 +296,25 @@ ThemeData buildTodoTheme(TodoColors c) {
   // scheme's two backgrounds so sheets, dialogs and menus stop falling back to
   // the generated near-white default.
   final scheme =
-      ColorScheme.fromSeed(seedColor: c.accent, brightness: c.brightness)
-          .copyWith(
-            primary: c.accent,
-            onPrimary: c.onAccent,
-            secondary: c.accent,
-            surface: c.primaryBackground,
-            onSurface: c.primaryText,
-            onSurfaceVariant: c.secondaryText,
-            surfaceTint: Colors.transparent,
-            surfaceContainerLowest: c.primaryBackground,
-            surfaceContainerLow: c.secondaryBackground,
-            surfaceContainer: c.secondaryBackground,
-            surfaceContainerHigh: c.secondaryBackground,
-            surfaceContainerHighest: c.secondaryBackground,
-            outline: c.divider,
-            outlineVariant: c.divider,
-          );
+      ColorScheme.fromSeed(
+        seedColor: c.accent,
+        brightness: c.brightness,
+      ).copyWith(
+        primary: c.accent,
+        onPrimary: c.onAccent,
+        secondary: c.accent,
+        surface: c.primaryBackground,
+        onSurface: c.primaryText,
+        onSurfaceVariant: c.secondaryText,
+        surfaceTint: Colors.transparent,
+        surfaceContainerLowest: c.primaryBackground,
+        surfaceContainerLow: c.secondaryBackground,
+        surfaceContainer: c.secondaryBackground,
+        surfaceContainerHigh: c.secondaryBackground,
+        surfaceContainerHighest: c.secondaryBackground,
+        outline: c.divider,
+        outlineVariant: c.divider,
+      );
   return ThemeData(
     useMaterial3: true,
     brightness: c.brightness,
@@ -345,10 +349,8 @@ ThemeData buildTodoTheme(TodoColors c) {
       surfaceTintColor: Colors.transparent,
       scrimColor: Colors.black.withValues(alpha: 0.4),
     ),
-    textTheme: ThemeData(brightness: c.brightness).textTheme.apply(
-      bodyColor: c.primaryText,
-      displayColor: c.primaryText,
-    ),
+    textTheme: ThemeData(brightness: c.brightness).textTheme
+        .apply(bodyColor: c.primaryText, displayColor: c.primaryText),
     listTileTheme: ListTileThemeData(
       textColor: c.primaryText,
       iconColor: c.accent,
@@ -374,7 +376,10 @@ ThemeData buildTodoTheme(TodoColors c) {
         fontSize: 20,
         fontWeight: FontWeight.w600,
       ),
-      contentTextStyle: TextStyle(color: c.primaryText, fontSize: TodoText.medium),
+      contentTextStyle: TextStyle(
+        color: c.primaryText,
+        fontSize: TodoText.medium,
+      ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: c.secondaryBackground,

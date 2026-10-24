@@ -10,7 +10,10 @@ void main() {
     expect(TodoFormat.dueLabel(DateTime(2026, 10, 23), now: now), 'Yesterday');
     expect(TodoFormat.dueLabel(DateTime(2026, 10, 28), now: now), 'Wednesday');
     expect(TodoFormat.dueLabel(DateTime(2026, 12, 1), now: now), 'Tue 1 Dec');
-    expect(TodoFormat.dueLabel(DateTime(2027, 1, 5), now: now), 'Tue 5 Jan 2027');
+    expect(
+      TodoFormat.dueLabel(DateTime(2027, 1, 5), now: now),
+      'Tue 5 Jan 2027',
+    );
   });
 
   test('repeat durations use Vikunja wording', () {

@@ -8,24 +8,44 @@ void main() {
   test('every scheme keeps text and icons readable', () {
     for (final theme in TodoColors.all) {
       final bg = theme.primaryBackground;
-      expect(contrast(theme.primaryText, bg), greaterThanOrEqualTo(4.5),
-          reason: '${theme.name}: primary text');
+      expect(
+        contrast(theme.primaryText, bg),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name}: primary text',
+      );
       // Secondary text also draws the 15px metadata icons and the star outline,
       // so it has to clear the small-text bar, not the 3:1 UI bar.
-      expect(contrast(theme.secondaryText, bg), greaterThanOrEqualTo(4.5),
-          reason: '${theme.name}: secondary text and icons');
-      expect(contrast(theme.accent, bg), greaterThanOrEqualTo(4.5),
-          reason: '${theme.name}: accent icons (checkbox, drawer, entry bar)');
-      expect(contrast(theme.overdue, bg), greaterThanOrEqualTo(4.5),
-          reason: '${theme.name}: overdue date');
-      expect(contrast(theme.starActive, bg), greaterThanOrEqualTo(3.0),
-          reason: '${theme.name}: active star');
-      expect(contrast(theme.onAccent, theme.accent),
-          greaterThanOrEqualTo(4.5),
-          reason: '${theme.name}: text on the accent fill');
+      expect(
+        contrast(theme.secondaryText, bg),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name}: secondary text and icons',
+      );
+      expect(
+        contrast(theme.accent, bg),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name}: accent icons (checkbox, drawer, entry bar)',
+      );
+      expect(
+        contrast(theme.overdue, bg),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name}: overdue date',
+      );
+      expect(
+        contrast(theme.starActive, bg),
+        greaterThanOrEqualTo(3.0),
+        reason: '${theme.name}: active star',
+      );
+      expect(
+        contrast(theme.onAccent, theme.accent),
+        greaterThanOrEqualTo(4.5),
+        reason: '${theme.name}: text on the accent fill',
+      );
       // Surfaces must stay distinguishable from the background.
-      expect(contrast(theme.secondaryBackground, bg), greaterThan(1.02),
-          reason: '${theme.name}: secondary surface');
+      expect(
+        contrast(theme.secondaryBackground, bg),
+        greaterThan(1.02),
+        reason: '${theme.name}: secondary surface',
+      );
     }
   });
 

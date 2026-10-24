@@ -28,14 +28,19 @@ class LabelsScreen extends StatelessWidget {
               children: [
                 Icon(Icons.label_outline, size: 56, color: c.secondaryText),
                 const SizedBox(height: 20),
-                Text('No labels yet',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: TodoText.xl, color: c.primaryText)),
+                Text(
+                  'No labels yet',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: TodoText.xl, color: c.primaryText),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'Labels tag tasks across projects and get their own list here.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+                  style: TextStyle(
+                    fontSize: TodoText.medium,
+                    color: c.secondaryText,
+                  ),
                 ),
               ],
             )
@@ -45,11 +50,18 @@ class LabelsScreen extends StatelessWidget {
               itemBuilder: (context, i) {
                 final label = state.labels[i];
                 return ListTile(
-                  leading: Icon(Icons.label,
-                      color: TodoColors.serverColor(label.hexColor, c)),
-                  title: Text(label.title, style: TextStyle(color: c.primaryText)),
-                  subtitle: Text('${state.countForTag(label)} open tasks',
-                      style: TextStyle(fontSize: 12, color: c.secondaryText)),
+                  leading: Icon(
+                    Icons.label,
+                    color: TodoColors.serverColor(label.hexColor, c),
+                  ),
+                  title: Text(
+                    label.title,
+                    style: TextStyle(color: c.primaryText),
+                  ),
+                  subtitle: Text(
+                    '${state.countForTag(label)} open tasks',
+                    style: TextStyle(fontSize: 12, color: c.secondaryText),
+                  ),
                   onTap: () => _edit(context, state, label),
                 );
               },
@@ -57,7 +69,11 @@ class LabelsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _edit(BuildContext context, AppState state, VikunjaLabel? label) async {
+  Future<void> _edit(
+    BuildContext context,
+    AppState state,
+    VikunjaLabel? label,
+  ) async {
     final title = TextEditingController(text: label?.title ?? '');
     final description = TextEditingController();
     final scheme = TodoColors.of(context);
@@ -143,7 +159,8 @@ class LabelsScreen extends StatelessWidget {
     );
 
     if (saved != true) return;
-    final hex = '#${(selected.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+    final hex =
+        '#${(selected.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
     final error = label == null
         ? await state.createLabel(
             title.text.trim(),
@@ -157,14 +174,18 @@ class LabelsScreen extends StatelessWidget {
             description: description.text.trim(),
           );
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
   }
 }
 
 /// Label picker for a task: toggles labels on it via the bulk endpoint.
 Future<void> showLabelPicker(
-    BuildContext context, AppState state, VikunjaTask task) async {
+  BuildContext context,
+  AppState state,
+  VikunjaTask task,
+) async {
   final selected = {for (final label in task.labels) label.id};
 
   final confirmed = await showModalBottomSheet<bool>(
@@ -181,11 +202,14 @@ Future<void> showLabelPicker(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Row(
                   children: [
-                    Text('Labels',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: c.primaryText)),
+                    Text(
+                      'Labels',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: c.primaryText,
+                      ),
+                    ),
                     const Spacer(),
                     TextButton(
                       onPressed: () => Navigator.pop(context, true),
@@ -197,8 +221,10 @@ Future<void> showLabelPicker(
               if (state.labels.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text('Create a label first',
-                      style: TextStyle(color: c.secondaryText)),
+                  child: Text(
+                    'Create a label first',
+                    style: TextStyle(color: c.secondaryText),
+                  ),
                 ),
               Flexible(
                 child: ListView(
@@ -209,10 +235,14 @@ Future<void> showLabelPicker(
                         value: selected.contains(label.id),
                         activeColor: c.accent,
                         checkColor: c.onAccent,
-                        secondary: Icon(Icons.label,
-                            color: TodoColors.serverColor(label.hexColor, c)),
-                        title: Text(label.title,
-                            style: TextStyle(color: c.primaryText)),
+                        secondary: Icon(
+                          Icons.label,
+                          color: TodoColors.serverColor(label.hexColor, c),
+                        ),
+                        title: Text(
+                          label.title,
+                          style: TextStyle(color: c.primaryText),
+                        ),
                         onChanged: (value) => setLocal(() {
                           if (value == true) {
                             selected.add(label.id);

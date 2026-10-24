@@ -75,7 +75,8 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
       description: _description.text.trim(),
     );
     if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -85,7 +86,8 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     final error = await state.addTeamMember(widget.teamId, user.username);
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     await _load();
   }
@@ -101,8 +103,14 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
           'The team will be removed. Projects shared with it stay in place.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -151,13 +159,23 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
               children: [
                 TextField(
                   controller: _name,
-                  style: TextStyle(fontSize: TodoText.xxl, fontWeight: FontWeight.w600, color: c.primaryText),
-                  decoration: const InputDecoration(labelText: 'Name', border: InputBorder.none),
+                  style: TextStyle(
+                    fontSize: TodoText.xxl,
+                    fontWeight: FontWeight.w600,
+                    color: c.primaryText,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: InputBorder.none,
+                  ),
                 ),
                 TextField(
                   controller: _description,
                   maxLines: null,
-                  style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+                  style: TextStyle(
+                    fontSize: TodoText.medium,
+                    color: c.secondaryText,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Description',
                     border: InputBorder.none,
@@ -184,29 +202,51 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                 else if (_error != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(_error!,
-                        style: TextStyle(color: c.overdue, fontSize: TodoText.medium)),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: c.overdue,
+                        fontSize: TodoText.medium,
+                      ),
+                    ),
                   )
                 else if (_members.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text('No members yet',
-                        style: TextStyle(color: c.secondaryText, fontSize: TodoText.medium)),
+                    child: Text(
+                      'No members yet',
+                      style: TextStyle(
+                        color: c.secondaryText,
+                        fontSize: TodoText.medium,
+                      ),
+                    ),
                   ),
                 for (final member in _members)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       backgroundColor: c.accent,
-                      child: Text(member.initials,
-                          style: TextStyle(fontSize: 12, color: c.onAccent)),
+                      child: Text(
+                        member.initials,
+                        style: TextStyle(fontSize: 12, color: c.onAccent),
+                      ),
                     ),
-                    title: Text(member.displayName,
-                        style: TextStyle(fontSize: TodoText.big, color: c.primaryText)),
+                    title: Text(
+                      member.displayName,
+                      style: TextStyle(
+                        fontSize: TodoText.big,
+                        color: c.primaryText,
+                      ),
+                    ),
                     subtitle: member.username.isEmpty
                         ? null
-                        : Text('@${member.username}',
-                            style: TextStyle(fontSize: 12, color: c.secondaryText)),
+                        : Text(
+                            '@${member.username}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: c.secondaryText,
+                            ),
+                          ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -214,33 +254,45 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                           onPressed: () async {
                             // Vikunja lets the last admin demote themselves,
                             // which locks everyone out of team management.
-                            final admins =
-                                _members.where((m) => m.admin).length;
+                            final admins = _members
+                                .where((m) => m.admin)
+                                .length;
                             if (member.admin && admins <= 1) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                      'A team needs at least one admin. '
-                                      'Promote someone else first.'),
+                                    'A team needs at least one admin. '
+                                    'Promote someone else first.',
+                                  ),
                                 ),
                               );
                               return;
                             }
                             await state.toggleTeamMemberAdmin(
-                                widget.teamId, member.username);
+                              widget.teamId,
+                              member.username,
+                            );
                             await _load();
                           },
                           child: Text(
                             member.admin ? 'Admin' : 'Member',
-                            style: TextStyle(color: member.admin ? c.accent : c.secondaryText),
+                            style: TextStyle(
+                              color: member.admin ? c.accent : c.secondaryText,
+                            ),
                           ),
                         ),
                         IconButton(
                           tooltip: 'Remove from team',
-                          icon: Icon(Icons.close, size: 18, color: c.secondaryText),
+                          icon: Icon(
+                            Icons.close,
+                            size: 18,
+                            color: c.secondaryText,
+                          ),
                           onPressed: () async {
                             final error = await state.removeTeamMember(
-                                widget.teamId, member.username);
+                              widget.teamId,
+                              member.username,
+                            );
                             if (!mounted) return;
                             if (error != null) {
                               ScaffoldMessenger.of(context)
@@ -314,7 +366,9 @@ class _UserSearchSheetState extends State<_UserSearchSheet> {
   Widget build(BuildContext context) {
     final c = TodoColors.of(context);
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SizedBox(
         height: 420,
         child: Column(
@@ -338,15 +392,17 @@ class _UserSearchSheetState extends State<_UserSearchSheet> {
               ),
             ),
             if (_searching)
-              const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ),
             Expanded(
               child: ListView(
                 children: [
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(_error!,
-                          style: TextStyle(color: c.overdue)),
+                      child: Text(_error!, style: TextStyle(color: c.overdue)),
                     ),
                   if (!_searching && _results.isEmpty)
                     Padding(
@@ -355,8 +411,8 @@ class _UserSearchSheetState extends State<_UserSearchSheet> {
                         _controller.text.isEmpty
                             ? 'Type a name or username to search.'
                             : 'No users found. Vikunja only lists users who '
-                                'enabled "Discoverable by name" in their '
-                                'settings.',
+                                  'enabled "Discoverable by name" in their '
+                                  'settings.',
                         style: TextStyle(color: c.secondaryText),
                       ),
                     ),
@@ -365,15 +421,23 @@ class _UserSearchSheetState extends State<_UserSearchSheet> {
                       leading: CircleAvatar(
                         backgroundColor: c.accent,
                         child: Text(
-                          (user.name?.isNotEmpty == true ? user.name! : user.username)
+                          (user.name?.isNotEmpty == true
+                                  ? user.name!
+                                  : user.username)
                               .substring(0, 1)
                               .toUpperCase(),
                           style: TextStyle(fontSize: 12, color: c.onAccent),
                         ),
                       ),
-                      title: Text(user.name?.isNotEmpty == true ? user.name! : user.username),
-                      subtitle: Text('@${user.username}',
-                          style: TextStyle(fontSize: 12, color: c.secondaryText)),
+                      title: Text(
+                        user.name?.isNotEmpty == true
+                            ? user.name!
+                            : user.username,
+                      ),
+                      subtitle: Text(
+                        '@${user.username}',
+                        style: TextStyle(fontSize: 12, color: c.secondaryText),
+                      ),
                       onTap: () => Navigator.pop(context, user),
                     ),
                 ],

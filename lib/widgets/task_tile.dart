@@ -90,49 +90,66 @@ class TaskTile extends StatelessWidget {
     final items = <Widget>[];
 
     if (task.labels.isNotEmpty) {
-      items.add(Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final l in task.labels.take(4))
-            Padding(
-              padding: const EdgeInsets.only(right: 3),
-              child: Icon(Icons.label, size: 13, color: TodoColors.serverColor(l.hexColor, c)),
+      items.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final l in task.labels.take(4))
+              Padding(
+                padding: const EdgeInsets.only(right: 3),
+                child: Icon(
+                  Icons.label,
+                  size: 13,
+                  color: TodoColors.serverColor(l.hexColor, c),
+                ),
+              ),
+            Text(
+              task.labels.first.title,
+              style: TextStyle(
+                fontSize: TodoText.medium,
+                color: c.secondaryText,
+              ),
             ),
-          Text(
-            task.labels.first.title,
-            style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
-          ),
-        ],
-      ));
+          ],
+        ),
+      );
     }
 
     if (showProject && project != null) {
-      items.add(Text(
-        project!.title,
-        style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
-        overflow: TextOverflow.ellipsis,
-      ));
+      items.add(
+        Text(
+          project!.title,
+          style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
     }
 
     if (task.dueDate != null) {
       final overdue = task.isOverdue;
       final dueToday = task.isDueToday;
-      items.add(Text(
-        TodoFormat.metadataLabel(task.dueDate!),
-        style: TextStyle(
-          fontSize: TodoText.medium,
-          color: overdue
-              ? c.overdue
-              : dueToday
-                  ? c.accent
-                  : c.secondaryText,
-          fontWeight: overdue || dueToday ? FontWeight.w500 : FontWeight.normal,
+      items.add(
+        Text(
+          TodoFormat.metadataLabel(task.dueDate!),
+          style: TextStyle(
+            fontSize: TodoText.medium,
+            color: overdue
+                ? c.overdue
+                : dueToday
+                ? c.accent
+                : c.secondaryText,
+            fontWeight: overdue || dueToday
+                ? FontWeight.w500
+                : FontWeight.normal,
+          ),
         ),
-      ));
+      );
     }
 
     if (task.reminders.isNotEmpty) {
-      items.add(Icon(Icons.notifications_none, size: 15, color: c.secondaryText));
+      items.add(
+        Icon(Icons.notifications_none, size: 15, color: c.secondaryText),
+      );
     }
     if (task.repeatAfter > 0) {
       items.add(Icon(Icons.repeat, size: 15, color: c.secondaryText));
@@ -141,7 +158,9 @@ class TaskTile extends StatelessWidget {
       items.add(Icon(Icons.notes, size: 15, color: c.secondaryText));
     }
     if (task.commentCount > 0) {
-      items.add(Icon(Icons.chat_bubble_outline, size: 14, color: c.secondaryText));
+      items.add(
+        Icon(Icons.chat_bubble_outline, size: 14, color: c.secondaryText),
+      );
     }
     if (task.assignees.isNotEmpty) {
       items.add(
@@ -163,21 +182,22 @@ class TaskTile extends StatelessWidget {
     final children = <Widget>[];
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
-        children.add(Container(
-          width: 2,
-          height: 2,
-          margin: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            color: c.secondaryText.withValues(alpha: 0.6),
-            shape: BoxShape.circle,
+        children.add(
+          Container(
+            width: 2,
+            height: 2,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+            decoration: BoxDecoration(
+              color: c.secondaryText.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
           ),
-        ));
+        );
       }
       children.add(items[i]);
     }
     return Row(children: children);
   }
-
 }
 
 class _CheckButton extends StatelessWidget {

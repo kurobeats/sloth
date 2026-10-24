@@ -24,9 +24,11 @@ class TodoFormat {
   /// Compact "Today", "Mon", "3 Nov" used inside the task metadata row.
   static String metadataLabel(DateTime due, {DateTime? now}) {
     final n = now ?? DateTime.now();
-    final diff = DateTime(due.year, due.month, due.day)
-        .difference(DateTime(n.year, n.month, n.day))
-        .inDays;
+    final diff = DateTime(
+      due.year,
+      due.month,
+      due.day,
+    ).difference(DateTime(n.year, n.month, n.day)).inDays;
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
     if (diff == -1) return 'Yesterday';

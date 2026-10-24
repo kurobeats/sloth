@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -42,12 +43,11 @@ class ListSelection {
   String get key => tag != null
       ? 'tag:${tag!.id}'
       : smart != null
-          ? 'smart:${smart!.name}'
-          : 'project:${project!.id}';
+      ? 'smart:${smart!.name}'
+      : 'project:${project!.id}';
 
   @override
-  bool operator ==(Object other) =>
-      other is ListSelection && other.key == key;
+  bool operator ==(Object other) => other is ListSelection && other.key == key;
 
   @override
   int get hashCode => key.hashCode;
@@ -165,7 +165,6 @@ class AppState extends ChangeNotifier {
         lastServer = base;
         final client = VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)
           ..token = token;
-        api = client;
         baseUrl = base;
         _cache = OfflineCache(key: 'cache:$base');
 
@@ -244,7 +243,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> _connect(VikunjaApi client, {required bool persist}) async {
     final me = await client.currentUser();
-    api?.close();
+    // restore() hands the same client in; closing it here killed every later
+    // request with "Client is already closed".
+    if (!identical(api, client)) api?.close();
     api = client;
     user = me;
     baseUrl = client.baseUrl;
@@ -309,9 +310,13 @@ class AppState extends ChangeNotifier {
       if (e.isUnauthorized) {
         await signOut();
         error = 'Your session expired. Please log in again.';
-      } else {
+      } else if (await _loadCache()) {
         // No server: keep whatever the cache gave us.
-        if (!await _loadCache()) error = e.message;
+        offline = true;
+        error = null;
+      } else {
+        offline = false;
+        error = e.message;
       }
     } catch (e) {
       if (!await _loadCache()) error = e.toString();
@@ -366,15 +371,22 @@ class AppState extends ChangeNotifier {
       case SmartList.dueToday:
         final due = t.dueDate;
         if (due == null) return false;
-        return DateTime(due.year, due.month, due.day)
-            .isBefore(today.add(const Duration(days: 1)));
+        return DateTime(
+          due.year,
+          due.month,
+          due.day,
+        ).isBefore(today.add(const Duration(days: 1)));
       case SmartList.favorites:
         return t.isFavorite;
       case SmartList.upcoming:
         // Vikunja's Upcoming view is a seven-day window from today.
         final due = t.dueDate;
         if (due == null) return false;
-        final diff = DateTime(due.year, due.month, due.day).difference(today).inDays;
+        final diff = DateTime(
+          due.year,
+          due.month,
+          due.day,
+        ).difference(today).inDays;
         return diff >= 0 && diff < 7;
       case SmartList.assigned:
         final me = user?.id;
@@ -406,7 +418,10 @@ class AppState extends ChangeNotifier {
       final at = t.doneAt;
       return at != null && !at.isBefore(cutoff);
     }).toList();
-    list.sort((a, b) => (b.doneAt ?? DateTime(2000)).compareTo(a.doneAt ?? DateTime(2000)));
+    list.sort(
+      (a, b) =>
+          (b.doneAt ?? DateTime(2000)).compareTo(a.doneAt ?? DateTime(2000)),
+    );
     return list;
   }
 
@@ -419,15 +434,21 @@ class AppState extends ChangeNotifier {
         case SmartList.dueToday:
           final due = t.dueDate;
           if (due == null) return false;
-          return DateTime(due.year, due.month, due.day)
-              .isBefore(today.add(const Duration(days: 1)));
+          return DateTime(
+            due.year,
+            due.month,
+            due.day,
+          ).isBefore(today.add(const Duration(days: 1)));
         case SmartList.favorites:
           return t.isFavorite;
         case SmartList.upcoming:
           final due = t.dueDate;
           if (due == null) return false;
-          final diff =
-              DateTime(due.year, due.month, due.day).difference(today).inDays;
+          final diff = DateTime(
+            due.year,
+            due.month,
+            due.day,
+          ).difference(today).inDays;
           return diff >= 0 && diff < 7;
         case SmartList.assigned:
           final me = user?.id;
@@ -456,9 +477,8 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  int countForProject(VikunjaProject project) => _allTasks
-      .where((t) => !t.done && t.projectId == project.id)
-      .length;
+  int countForProject(VikunjaProject project) =>
+      _allTasks.where((t) => !t.done && t.projectId == project.id).length;
 
   int countForTag(VikunjaLabel tag) => _allTasks
       .where((t) => !t.done && t.labels.any((l) => l.id == tag.id))
@@ -488,7 +508,10 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------- mutation --
 
   /// Applies [change] locally, then persists. Rolls back on failure.
-  Future<void> mutate(VikunjaTask task, void Function(VikunjaTask) change) async {
+  Future<void> mutate(
+    VikunjaTask task,
+    void Function(VikunjaTask) change,
+  ) async {
     final client = api;
     if (client == null) return;
     if (offline) {
@@ -531,7 +554,8 @@ class AppState extends ChangeNotifier {
       return null;
     }
     final writable = writableProjects;
-    final target = project ??
+    final target =
+        project ??
         (selection.project != null && selection.project!.id > 0
             ? selection.project
             : (writable.isNotEmpty ? writable.first : null));
@@ -552,7 +576,10 @@ class AppState extends ChangeNotifier {
           ],
       });
       _allTasks = [created, ..._allTasks];
-      _projectTasks[target.id] = [created, ...(_projectTasks[target.id] ?? const [])];
+      _projectTasks[target.id] = [
+        created,
+        ...(_projectTasks[target.id] ?? const []),
+      ];
       notifyListeners();
       return created;
     } on VikunjaException catch (e) {
@@ -581,7 +608,11 @@ class AppState extends ChangeNotifier {
   Future<List<VikunjaTask>> searchTasks(String query) {
     final client = api;
     if (client == null || query.trim().isEmpty) return Future.value(const []);
-    return client.allTasks(search: query.trim(), sortBy: 'done', orderBy: 'asc');
+    return client.allTasks(
+      search: query.trim(),
+      sortBy: 'done',
+      orderBy: 'asc',
+    );
   }
 
   Future<void> deleteTask(VikunjaTask task) async {
@@ -691,6 +722,38 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ------------------------------------------------------------- kanban ----
+
+  /// Kanban columns for a project, or null when it has no kanban view.
+  Future<List<VikunjaBucket>?> board(VikunjaProject project) async {
+    final viewId = project.kanbanViewId;
+    if (viewId == null) return null;
+    try {
+      return await api?.board(project.id, viewId);
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      error = e.message;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<String?> moveToBucket(
+    VikunjaProject project,
+    int taskId,
+    int bucketId,
+  ) async {
+    if (offline) return offlineEditError;
+    final viewId = project.kanbanViewId;
+    if (viewId == null) return 'This project has no kanban view.';
+    try {
+      await api?.moveToBucket(project.id, viewId, bucketId, taskId);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
   Future<String?> addComment(int taskId, String text) async {
     if (offline) return offlineEditError;
     try {
@@ -748,7 +811,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> uploadAttachment(int taskId, String name, List<int> bytes) async {
+  Future<String?> uploadAttachment(
+    int taskId,
+    String name,
+    List<int> bytes,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.uploadAttachment(taskId, name, bytes);
@@ -780,7 +847,7 @@ class AppState extends ChangeNotifier {
 
   // ---------------------------------------------------------- relations ----
 
-  Future<String?> addRelation(int taskId, int otherTaskId, int kind) async {
+  Future<String?> addRelation(int taskId, int otherTaskId, String kind) async {
     if (offline) return offlineEditError;
     try {
       await api?.addRelation(taskId, otherTaskId, kind);
@@ -790,7 +857,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> removeRelation(int taskId, int kind, int otherTaskId) async {
+  Future<String?> removeRelation(
+    int taskId,
+    String kind,
+    int otherTaskId,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.removeRelation(taskId, kind, otherTaskId);
@@ -800,14 +871,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> createLabel(String title,
-      {String hexColor = '', String description = ''}) async {
+  Future<String?> createLabel(
+    String title, {
+    String hexColor = '',
+    String description = '',
+  }) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
-      final created =
-          await client.createLabel(title, hexColor: hexColor, description: description);
+      final created = await client.createLabel(
+        title,
+        hexColor: hexColor,
+        description: description,
+      );
       labels = [...labels, created];
       notifyListeners();
       return null;
@@ -816,14 +893,22 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> updateLabel(VikunjaLabel label,
-      {required String title, String? hexColor, String? description}) async {
+  Future<String?> updateLabel(
+    VikunjaLabel label, {
+    required String title,
+    String? hexColor,
+    String? description,
+  }) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
-      final saved = await client.updateLabel(label,
-          title: title, hexColor: hexColor, description: description);
+      final saved = await client.updateLabel(
+        label,
+        title: title,
+        hexColor: hexColor,
+        description: description,
+      );
       labels = labels.map((l) => l.id == saved.id ? saved : l).toList();
       notifyListeners();
       return null;
@@ -843,7 +928,9 @@ class AppState extends ChangeNotifier {
         final t = _allTasks[i];
         if (t.labels.any((l) => l.id == label.id)) {
           _allTasks[i] = _copyTaskWithLabels(
-              t, t.labels.where((l) => l.id != label.id).toList());
+            t,
+            t.labels.where((l) => l.id != label.id).toList(),
+          );
         }
       }
       if (selection.tag?.id == label.id) {
@@ -856,34 +943,39 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  static VikunjaTask _copyTaskWithLabels(VikunjaTask t, List<VikunjaLabel> labels) =>
-      VikunjaTask(
-        id: t.id,
-        projectId: t.projectId,
-        title: t.title,
-        description: t.description,
-        done: t.done,
-        doneAt: t.doneAt,
-        dueDate: t.dueDate,
-        startDate: t.startDate,
-        endDate: t.endDate,
-        priority: t.priority,
-        isFavorite: t.isFavorite,
-        percentDone: t.percentDone,
-        labels: labels,
-        assignees: t.assignees,
-        reminders: t.reminders,
-        repeatAfter: t.repeatAfter,
-        repeatMode: t.repeatMode,
-        hexColor: t.hexColor,
-        identifier: t.identifier,
-        created: t.created,
-        updated: t.updated,
-        position: t.position,
-        commentCount: t.commentCount,
-      );
+  static VikunjaTask _copyTaskWithLabels(
+    VikunjaTask t,
+    List<VikunjaLabel> labels,
+  ) => VikunjaTask(
+    id: t.id,
+    projectId: t.projectId,
+    title: t.title,
+    description: t.description,
+    done: t.done,
+    doneAt: t.doneAt,
+    dueDate: t.dueDate,
+    startDate: t.startDate,
+    endDate: t.endDate,
+    priority: t.priority,
+    isFavorite: t.isFavorite,
+    percentDone: t.percentDone,
+    labels: labels,
+    assignees: t.assignees,
+    reminders: t.reminders,
+    repeatAfter: t.repeatAfter,
+    repeatMode: t.repeatMode,
+    hexColor: t.hexColor,
+    identifier: t.identifier,
+    created: t.created,
+    updated: t.updated,
+    position: t.position,
+    commentCount: t.commentCount,
+  );
 
-  Future<String?> setTaskLabels(VikunjaTask task, List<VikunjaLabel> labels) async {
+  Future<String?> setTaskLabels(
+    VikunjaTask task,
+    List<VikunjaLabel> labels,
+  ) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
@@ -912,13 +1004,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> saveTeam(VikunjaTeam team,
-      {required String name, String? description}) async {
+  Future<String?> saveTeam(
+    VikunjaTeam team, {
+    required String name,
+    String? description,
+  }) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
-      final saved = await client.updateTeam(team.id, name: name, description: description);
+      final saved = await client.updateTeam(
+        team.id,
+        name: name,
+        description: description,
+      );
       teams = teams.map((t) => t.id == saved.id ? saved : t).toList();
       notifyListeners();
       return null;
@@ -1021,13 +1120,15 @@ class AppState extends ChangeNotifier {
     final client = api;
     if (client == null) return;
     try {
-      final saved = await client.updateProject(project,
-          title: title,
-          description: description,
-          hexColor: hexColor,
-          identifier: identifier,
-          isFavorite: isFavorite,
-          isArchived: isArchived);
+      final saved = await client.updateProject(
+        project,
+        title: title,
+        description: description,
+        hexColor: hexColor,
+        identifier: identifier,
+        isFavorite: isFavorite,
+        isArchived: isArchived,
+      );
       projects = projects.map((p) => p.id == saved.id ? saved : p).toList();
       if (selection.project?.id == saved.id) {
         selection = ListSelection.project(saved);
@@ -1059,7 +1160,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshShares() async => notifyListeners();
 
-  Future<String?> shareWithTeam(int projectId, int teamId, int permission) async {
+  Future<String?> shareWithTeam(
+    int projectId,
+    int teamId,
+    int permission,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.addProjectTeam(projectId, teamId, permission);
@@ -1070,7 +1175,32 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> setTeamShare(int projectId, int teamId, int permission) async {
+  Future<String?> createLinkShare(
+    int projectId,
+    String name,
+    int permission, {
+    String? password,
+  }) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.createLinkShare(
+        projectId,
+        name: name,
+        permission: permission,
+        password: password,
+      );
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> setTeamShare(
+    int projectId,
+    int teamId,
+    int permission,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.updateProjectTeam(projectId, teamId, permission);
@@ -1092,7 +1222,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> shareWithUser(int projectId, int userId, int permission) async {
+  Future<String?> shareWithUser(
+    int projectId,
+    int userId,
+    int permission,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.addProjectUser(projectId, userId, permission);
@@ -1103,7 +1237,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> setUserShare(int projectId, int userId, int permission) async {
+  Future<String?> setUserShare(
+    int projectId,
+    int userId,
+    int permission,
+  ) async {
     if (offline) return offlineEditError;
     try {
       await api?.updateProjectUser(projectId, userId, permission);

@@ -31,30 +31,42 @@ class TeamsScreen extends StatelessWidget {
                 children: [
                   Icon(Icons.groups_outlined, size: 56, color: c.secondaryText),
                   const SizedBox(height: 20),
-                  Text('No teams yet',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: TodoText.xl, color: c.primaryText)),
+                  Text(
+                    'No teams yet',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: TodoText.xl,
+                      color: c.primaryText,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     'Teams group users so a project can be shared with all of them at once.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+                    style: TextStyle(
+                      fontSize: TodoText.medium,
+                      color: c.secondaryText,
+                    ),
                   ),
                 ],
               )
             : ListView.separated(
                 itemCount: state.teams.length,
-                separatorBuilder: (_, _) => Divider(height: 1, color: c.divider),
+                separatorBuilder: (_, _) =>
+                    Divider(height: 1, color: c.divider),
                 itemBuilder: (context, i) {
                   final team = state.teams[i];
                   return ListTile(
                     leading: Icon(Icons.groups_outlined, color: c.accent),
-                    title: Text(team.name, style: TextStyle(color: c.primaryText)),
+                    title: Text(
+                      team.name,
+                      style: TextStyle(color: c.primaryText),
+                    ),
                     subtitle: Text(
                       team.members.isEmpty
                           ? 'No members'
                           : '${team.members.length} '
-                              '${team.members.length == 1 ? "member" : "members"}',
+                                '${team.members.length == 1 ? "member" : "members"}',
                       style: TextStyle(fontSize: 12, color: c.secondaryText),
                     ),
                     trailing: Icon(Icons.chevron_right, color: c.secondaryText),
@@ -93,7 +105,10 @@ class TeamsScreen extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Create'),
@@ -104,10 +119,13 @@ class TeamsScreen extends StatelessWidget {
     if (created != true) return;
     final error = await state.createTeam(
       name.text.trim(),
-      description: description.text.trim().isEmpty ? null : description.text.trim(),
+      description: description.text.trim().isEmpty
+          ? null
+          : description.text.trim(),
     );
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
   }
 }

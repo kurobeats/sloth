@@ -6,8 +6,17 @@ void main() {
     const base = 'https://tasks.example.com';
     expect(VikunjaApi.certHostAllowed(base, 'tasks.example.com'), isTrue);
     expect(VikunjaApi.certHostAllowed(base, 'evil.example'), isFalse);
-    expect(VikunjaApi.certHostAllowed('https://tasks.example.com:8443', 'tasks.example.com'), isTrue);
-    expect(VikunjaApi.certHostAllowed('not a url', 'tasks.example.com'), isFalse);
+    expect(
+      VikunjaApi.certHostAllowed(
+        'https://tasks.example.com:8443',
+        'tasks.example.com',
+      ),
+      isTrue,
+    );
+    expect(
+      VikunjaApi.certHostAllowed('not a url', 'tasks.example.com'),
+      isFalse,
+    );
   });
 
   test('base URL normalisation', () {

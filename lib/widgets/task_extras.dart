@@ -11,7 +11,11 @@ import '../screens/team_detail_screen.dart' show showUserSearch;
 
 /// Assignees for a task (`/tasks/{id}/assignees`).
 class AssigneesSection extends StatelessWidget {
-  const AssigneesSection({super.key, required this.task, required this.onChanged});
+  const AssigneesSection({
+    super.key,
+    required this.task,
+    required this.onChanged,
+  });
 
   final VikunjaTask task;
   final VoidCallback onChanged;
@@ -33,8 +37,13 @@ class AssigneesSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: InkWell(
               onTap: () => _add(context, state),
-              child: Text('Assign to User',
-                  style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText)),
+              child: Text(
+                'Assign to User',
+                style: TextStyle(
+                  fontSize: TodoText.medium,
+                  color: c.secondaryText,
+                ),
+              ),
             ),
           ),
         for (final user in task.assignees)
@@ -44,10 +53,15 @@ class AssigneesSection extends StatelessWidget {
             leading: CircleAvatar(
               radius: 14,
               backgroundColor: c.accent,
-              child: Text(user.initials,
-                  style: TextStyle(fontSize: 10, color: c.onAccent)),
+              child: Text(
+                user.initials,
+                style: TextStyle(fontSize: 10, color: c.onAccent),
+              ),
             ),
-            title: Text(user.displayName, style: TextStyle(color: c.primaryText)),
+            title: Text(
+              user.displayName,
+              style: TextStyle(color: c.primaryText),
+            ),
             trailing: IconButton(
               tooltip: 'Remove assignee',
               icon: Icon(Icons.close, size: 16, color: c.secondaryText),
@@ -68,7 +82,8 @@ class AssigneesSection extends StatelessWidget {
     if (user == null) return;
     final error = await state.assign(task, user);
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     onChanged();
   }
@@ -76,7 +91,11 @@ class AssigneesSection extends StatelessWidget {
 
 /// Task relations, e.g. subtasks (`/tasks/{id}/relations`).
 class RelationsSection extends StatelessWidget {
-  const RelationsSection({super.key, required this.task, required this.onChanged});
+  const RelationsSection({
+    super.key,
+    required this.task,
+    required this.onChanged,
+  });
 
   final VikunjaTask task;
   final VoidCallback onChanged;
@@ -97,8 +116,13 @@ class RelationsSection extends StatelessWidget {
         if (relations.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Text('No related tasks',
-                style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText)),
+            child: Text(
+              'No related tasks',
+              style: TextStyle(
+                fontSize: TodoText.medium,
+                color: c.secondaryText,
+              ),
+            ),
           ),
         for (final relation in relations)
           ListTile(
@@ -112,8 +136,10 @@ class RelationsSection extends StatelessWidget {
                 decoration: relation.done ? TextDecoration.lineThrough : null,
               ),
             ),
-            subtitle: Text(VikunjaRelation.label(relation.kind),
-                style: TextStyle(fontSize: 11, color: c.secondaryText)),
+            subtitle: Text(
+              VikunjaRelation.label(relation.kind),
+              style: TextStyle(fontSize: 11, color: c.secondaryText),
+            ),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => _RelationTarget(taskId: relation.taskId),
@@ -124,8 +150,11 @@ class RelationsSection extends StatelessWidget {
               icon: Icon(Icons.close, size: 16, color: c.secondaryText),
               onPressed: () async {
                 if (!requireOnline(context, state)) return;
-                final error =
-                    await state.removeRelation(task.id, relation.kind, relation.taskId);
+                final error = await state.removeRelation(
+                  task.id,
+                  relation.kind,
+                  relation.taskId,
+                );
                 if (error != null && context.mounted) {
                   ScaffoldMessenger.of(context)
                       .showSnackBar(SnackBar(content: Text(error)));
@@ -140,7 +169,7 @@ class RelationsSection extends StatelessWidget {
 
   Future<void> _add(BuildContext context, AppState state) async {
     if (!requireOnline(context, state)) return;
-    final kind = await showModalBottomSheet<int>(
+    final kind = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -149,8 +178,10 @@ class RelationsSection extends StatelessWidget {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('Relation',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              child: Text(
+                'Relation',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
             ),
             for (final k in VikunjaRelation.selectableKinds)
               ListTile(
@@ -167,7 +198,8 @@ class RelationsSection extends StatelessWidget {
     if (target == null) return;
     final error = await state.addRelation(task.id, target.id, kind);
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     onChanged();
   }
@@ -179,7 +211,9 @@ class RelationsSection extends StatelessWidget {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: SizedBox(
           height: 420,
           child: _TaskSearchSheet(controller: controller, state: state),
@@ -239,21 +273,28 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
           ),
         ),
         if (_searching)
-          const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: CircularProgressIndicator(),
+          ),
         Expanded(
           child: ListView(
             children: [
               if (!_searching && _results.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text('Search for a task to relate',
-                      style: TextStyle(color: c.secondaryText)),
+                  child: Text(
+                    'Search for a task to relate',
+                    style: TextStyle(color: c.secondaryText),
+                  ),
                 ),
               for (final task in _results)
                 ListTile(
                   title: Text(task.title),
-                  subtitle: Text(task.identifier ?? '',
-                      style: TextStyle(fontSize: 11, color: c.secondaryText)),
+                  subtitle: Text(
+                    task.identifier ?? '',
+                    style: TextStyle(fontSize: 11, color: c.secondaryText),
+                  ),
                   onTap: () => Navigator.pop(context, task),
                 ),
             ],
@@ -342,7 +383,8 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
     await _load();
   }
@@ -371,23 +413,38 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
         if (_loading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(child: SizedBox(
-                width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           )
         else if (_items.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Text('No attachments',
-                style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText)),
+            child: Text(
+              'No attachments',
+              style: TextStyle(
+                fontSize: TodoText.medium,
+                color: c.secondaryText,
+              ),
+            ),
           ),
         for (final attachment in _items)
           ListTile(
             contentPadding: EdgeInsets.zero,
             dense: true,
             leading: Icon(Icons.attach_file, size: 18, color: c.accent),
-            title: Text(attachment.name, style: TextStyle(color: c.primaryText)),
-            subtitle: Text(attachment.readableSize,
-                style: TextStyle(fontSize: 11, color: c.secondaryText)),
+            title: Text(
+              attachment.name,
+              style: TextStyle(color: c.primaryText),
+            ),
+            subtitle: Text(
+              attachment.readableSize,
+              style: TextStyle(fontSize: 11, color: c.secondaryText),
+            ),
             onTap: () => _share(attachment),
             trailing: IconButton(
               tooltip: 'Delete attachment',
@@ -456,7 +513,8 @@ class _CommentsSectionState extends State<CommentsSection> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
       return;
     }
     _controller.clear();
@@ -476,7 +534,10 @@ class _CommentsSectionState extends State<CommentsSection> {
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: SizedBox(
-                width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
         for (final comment in _items)
           Padding(
@@ -488,7 +549,9 @@ class _CommentsSectionState extends State<CommentsSection> {
                   radius: 12,
                   backgroundColor: c.accent,
                   child: Text(
-                    (comment.author?.displayName ?? '?').substring(0, 1).toUpperCase(),
+                    (comment.author?.displayName ?? '?')
+                        .substring(0, 1)
+                        .toUpperCase(),
                     style: TextStyle(fontSize: 9, color: c.onAccent),
                   ),
                 ),
@@ -499,23 +562,34 @@ class _CommentsSectionState extends State<CommentsSection> {
                     children: [
                       Row(
                         children: [
-                          Text(comment.author?.displayName ?? '',
-                              style: TextStyle(
-                                  fontSize: TodoText.small,
-                                  fontWeight: FontWeight.w600,
-                                  color: c.primaryText)),
+                          Text(
+                            comment.author?.displayName ?? '',
+                            style: TextStyle(
+                              fontSize: TodoText.small,
+                              fontWeight: FontWeight.w600,
+                              color: c.primaryText,
+                            ),
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             comment.created == null
                                 ? ''
                                 : TodoFormat.metadataLabel(comment.created!),
-                            style: TextStyle(fontSize: 11, color: c.secondaryText),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: c.secondaryText,
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(comment.comment,
-                          style: TextStyle(fontSize: TodoText.medium, color: c.primaryText)),
+                      Text(
+                        comment.comment,
+                        style: TextStyle(
+                          fontSize: TodoText.medium,
+                          color: c.primaryText,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -537,10 +611,16 @@ class _CommentsSectionState extends State<CommentsSection> {
             Expanded(
               child: TextField(
                 controller: _controller,
-                style: TextStyle(fontSize: TodoText.medium, color: c.primaryText),
+                style: TextStyle(
+                  fontSize: TodoText.medium,
+                  color: c.primaryText,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Add your comment…',
-                  hintStyle: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+                  hintStyle: TextStyle(
+                    fontSize: TodoText.medium,
+                    color: c.secondaryText,
+                  ),
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),

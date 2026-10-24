@@ -123,193 +123,236 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 OfflineBanner(onRetry: state.refresh),
                 Expanded(
                   child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: _DetailCheckbox(
-                        done: task.done,
-                        onTap: () async {
-                          await state.toggleDone(task);
-                          if (mounted) setState(() {});
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _title,
-                        maxLines: null,
-                        style: TextStyle(
-                          fontSize: TodoText.xxl,
-                          fontWeight: FontWeight.w600,
-                          color: c.primaryText,
-                          decoration: task.done ? TextDecoration.lineThrough : null,
-                          decorationColor: c.secondaryText,
-                        ),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          isDense: true,
-                          hintText: 'Task title',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (!_notesOpen)
-                  _RowButton(
-                    icon: Icons.notes,
-                    label: 'Set Description',
-                    onTap: () => setState(() => _notesOpen = true),
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Icon(Icons.notes, size: 18, color: c.secondaryText),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: TextField(
-                            controller: _notes,
-                            maxLines: null,
-                            minLines: 2,
-                            style: TextStyle(fontSize: TodoText.medium, color: c.primaryText),
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              isDense: true,
-                              hintText: 'Add a description, hit / for more options…',
-                              hintStyle: TextStyle(color: c.secondaryText, fontSize: TodoText.medium),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: _DetailCheckbox(
+                              done: task.done,
+                              onTap: () async {
+                                await state.toggleDone(task);
+                                if (mounted) setState(() {});
+                              },
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const Divider(height: 24),
-                _RowValue(
-                  icon: Icons.calendar_today_outlined,
-                  label: 'Due Date',
-                  value: task.dueDate == null ? null : TodoFormat.dueLabel(task.dueDate!),
-                  valueColor: task.isOverdue ? c.overdue : c.accent,
-                  onTap: () => _pickDate(state, task),
-                  onClear: task.dueDate == null
-                      ? null
-                      : () => _set(state, task, (t) => t.dueDate = null),
-                ),
-                _RowValue(
-                  icon: Icons.notifications_none,
-                  label: 'Reminders',
-                  value: task.reminders.isEmpty
-                      ? null
-                      : TodoFormat.withTime(task.reminders.first.reminder),
-                  onTap: () => _pickReminder(state, task),
-                  onClear: task.reminders.isEmpty
-                      ? null
-                      : () => _set(state, task, (t) => t.reminders = const []),
-                ),
-                _RowValue(
-                  icon: Icons.repeat,
-                  label: 'Repeat',
-                  value: task.repeatAfter > 0 ? TodoFormat.repeat(task.repeatAfter) : null,
-                  onTap: () => _pickRepeat(state, task),
-                  onClear: task.repeatAfter == 0
-                      ? null
-                      : () => _set(state, task, (t) => t.repeatAfter = 0),
-                ),
-                _RowValue(
-                  icon: Icons.flag_outlined,
-                  label: 'Priority',
-                  value: task.priority > 0 ? TodoFormat.priority(task.priority) : null,
-                  onTap: () => _pickPriority(state, task),
-                  onClear: task.priority == 0
-                      ? null
-                      : () => _set(state, task, (t) => t.priority = 0),
-                ),
-                _RowValue(
-                  icon: Icons.list_alt,
-                  label: 'Project',
-                  value: state.projectOf(task)?.title ?? task.identifier,
-                  onTap: null,
-                ),
-                _RowValue(
-                  icon: Icons.label_outline,
-                  label: 'Labels',
-                  value: task.labels.isEmpty
-                      ? null
-                      : task.labels.map((l) => l.title).join(', '),
-                  onTap: () async {
-                    await showLabelPicker(context, state, task);
-                    final refreshed = await state.loadTask(task.id);
-                    if (refreshed != null && mounted) {
-                      setState(() => _task = refreshed);
-                    }
-                  },
-                ),
-                if (task.labels.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final label in task.labels)
-                          Chip(
-                            label: Text(
-                              label.title,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: _title,
+                              maxLines: null,
                               style: TextStyle(
-                                fontSize: 12,
-                                color: TodoColors.serverColor(label.hexColor, c, min: 4.5),
+                                fontSize: TodoText.xxl,
+                                fontWeight: FontWeight.w600,
+                                color: c.primaryText,
+                                decoration: task.done
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                decorationColor: c.secondaryText,
+                              ),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                isDense: true,
+                                hintText: 'Task title',
                               ),
                             ),
-                            backgroundColor: TodoColors.serverColor(label.hexColor, c, min: 4.5).withValues(alpha: 0.15),
-                            side: BorderSide.none,
-                            visualDensity: VisualDensity.compact,
                           ),
-                      ],
-                    ),
-                  ),
-                AssigneesSection(task: task, onChanged: _reload),
-                RelationsSection(task: task, onChanged: _reload),
-                AttachmentsSection(taskId: task.id),
-                CommentsSection(taskId: task.id),
-                const SizedBox(height: 24),
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          TodoFormat.created(task.created),
-                          style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (!_notesOpen)
+                        _RowButton(
+                          icon: Icons.notes,
+                          label: 'Set Description',
+                          onTap: () => setState(() => _notesOpen = true),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Icon(
+                                  Icons.notes,
+                                  size: 18,
+                                  color: c.secondaryText,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: TextField(
+                                  controller: _notes,
+                                  maxLines: null,
+                                  minLines: 2,
+                                  style: TextStyle(
+                                    fontSize: TodoText.medium,
+                                    color: c.primaryText,
+                                  ),
+                                  decoration: InputDecoration(
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    hintText: 'Add a description, hit / for more options…',
+                                    hintStyle: TextStyle(
+                                      color: c.secondaryText,
+                                      fontSize: TodoText.medium,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const Divider(height: 24),
+                      _RowValue(
+                        icon: Icons.calendar_today_outlined,
+                        label: 'Due Date',
+                        value: task.dueDate == null
+                            ? null
+                            : TodoFormat.dueLabel(task.dueDate!),
+                        valueColor: task.isOverdue ? c.overdue : c.accent,
+                        onTap: () => _pickDate(state, task),
+                        onClear: task.dueDate == null
+                            ? null
+                            : () => _set(state, task, (t) => t.dueDate = null),
+                      ),
+                      _RowValue(
+                        icon: Icons.notifications_none,
+                        label: 'Reminders',
+                        value: task.reminders.isEmpty
+                            ? null
+                            : TodoFormat.withTime(
+                                task.reminders.first.reminder,
+                              ),
+                        onTap: () => _pickReminder(state, task),
+                        onClear: task.reminders.isEmpty
+                            ? null
+                            : () => _set(
+                                state,
+                                task,
+                                (t) => t.reminders = const [],
+                              ),
+                      ),
+                      _RowValue(
+                        icon: Icons.repeat,
+                        label: 'Repeat',
+                        value: task.repeatAfter > 0
+                            ? TodoFormat.repeat(task.repeatAfter)
+                            : null,
+                        onTap: () => _pickRepeat(state, task),
+                        onClear: task.repeatAfter == 0
+                            ? null
+                            : () => _set(state, task, (t) => t.repeatAfter = 0),
+                      ),
+                      _RowValue(
+                        icon: Icons.flag_outlined,
+                        label: 'Priority',
+                        value: task.priority > 0
+                            ? TodoFormat.priority(task.priority)
+                            : null,
+                        onTap: () => _pickPriority(state, task),
+                        onClear: task.priority == 0
+                            ? null
+                            : () => _set(state, task, (t) => t.priority = 0),
+                      ),
+                      _RowValue(
+                        icon: Icons.list_alt,
+                        label: 'Project',
+                        value: state.projectOf(task)?.title ?? task.identifier,
+                        onTap: null,
+                      ),
+                      _RowValue(
+                        icon: Icons.label_outline,
+                        label: 'Labels',
+                        value: task.labels.isEmpty
+                            ? null
+                            : task.labels.map((l) => l.title).join(', '),
+                        onTap: () async {
+                          await showLabelPicker(context, state, task);
+                          final refreshed = await state.loadTask(task.id);
+                          if (refreshed != null && mounted) {
+                            setState(() => _task = refreshed);
+                          }
+                        },
+                      ),
+                      if (task.labels.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final label in task.labels)
+                                Chip(
+                                  label: Text(
+                                    label.title,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: TodoColors.serverColor(
+                                        label.hexColor,
+                                        c,
+                                        min: 4.5,
+                                      ),
+                                    ),
+                                  ),
+                                  backgroundColor: TodoColors.serverColor(
+                                    label.hexColor,
+                                    c,
+                                    min: 4.5,
+                                  ).withValues(alpha: 0.15),
+                                  side: BorderSide.none,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                            ],
+                          ),
+                        ),
+                      AssigneesSection(task: task, onChanged: _reload),
+                      RelationsSection(task: task, onChanged: _reload),
+                      AttachmentsSection(taskId: task.id),
+                      CommentsSection(taskId: task.id),
+                      const SizedBox(height: 24),
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                TodoFormat.created(task.created),
+                                style: TextStyle(
+                                  fontSize: TodoText.medium,
+                                  color: c.secondaryText,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              icon: Icon(
+                                Icons.delete_outline,
+                                color: c.secondaryText,
+                              ),
+                              onPressed: () => _delete(state, task),
+                            ),
+                          ],
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Delete',
-                        icon: Icon(Icons.delete_outline, color: c.secondaryText),
-                        onPressed: () => _delete(state, task),
-                      ),
+                      if (_loading)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Center(
+                            child: Text(
+                              'Syncing…',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: c.secondaryText,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
-                  ),
-                ),
-                if (_loading)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Center(
-                      child: Text('Syncing…',
-                          style: TextStyle(fontSize: 12, color: c.secondaryText)),
-                    ),
-                  ),
-              ],
                   ),
                 ),
               ],
@@ -322,7 +365,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (fresh != null && mounted) setState(() => _task = fresh);
   }
 
-  Future<void> _set(AppState state, VikunjaTask task, void Function(VikunjaTask) change) async {
+  Future<void> _set(
+    AppState state,
+    VikunjaTask task,
+    void Function(VikunjaTask) change,
+  ) async {
     await state.mutate(task, change);
     if (mounted) setState(() {});
   }
@@ -336,9 +383,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       lastDate: DateTime(now.year + 10),
     );
     if (picked == null) return;
-    final time = task.dueDate ?? DateTime(picked.year, picked.month, picked.day, 17);
-    await _set(state, task, (t) => t.dueDate =
-        DateTime(picked.year, picked.month, picked.day, time.hour, time.minute));
+    final time =
+        task.dueDate ?? DateTime(picked.year, picked.month, picked.day, 17);
+    await _set(
+      state,
+      task,
+      (t) => t.dueDate = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        time.hour,
+        time.minute,
+      ),
+    );
   }
 
   Future<void> _pickReminder(AppState state, VikunjaTask task) async {
@@ -357,8 +414,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       ),
     );
     if (time == null) return;
-    final at = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-    await _set(state, task, (t) => t.reminders = [VikunjaReminder(reminder: at)]);
+    final at = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    await _set(
+      state,
+      task,
+      (t) => t.reminders = [VikunjaReminder(reminder: at)],
+    );
   }
 
   Future<void> _pickRepeat(AppState state, VikunjaTask task) async {
@@ -403,12 +470,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text('Priority', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              child: Text(
+                'Priority',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
             ),
             for (var p = 0; p <= 5; p++)
               ListTile(
                 title: Text(TodoFormat.priority(p)),
-                trailing: task.priority == p ? const Icon(Icons.check, size: 20) : null,
+                trailing: task.priority == p
+                    ? const Icon(Icons.check, size: 20)
+                    : null,
                 onTap: () => Navigator.pop(context, p),
               ),
           ],
@@ -431,8 +503,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           'this task and cannot be undone!',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -461,7 +539,10 @@ class _DetailCheckbox extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: done ? c.accent : Colors.transparent,
-          border: Border.all(color: done ? c.accent : c.secondaryText, width: 1.5),
+          border: Border.all(
+            color: done ? c.accent : c.secondaryText,
+            width: 1.5,
+          ),
         ),
         child: done ? Icon(Icons.check, size: 15, color: c.onAccent) : null,
       ),
@@ -470,7 +551,11 @@ class _DetailCheckbox extends StatelessWidget {
 }
 
 class _RowButton extends StatelessWidget {
-  const _RowButton({required this.icon, required this.label, required this.onTap});
+  const _RowButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -487,7 +572,13 @@ class _RowButton extends StatelessWidget {
           children: [
             Icon(icon, size: 18, color: c.secondaryText),
             const SizedBox(width: 14),
-            Text(label, style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: TodoText.medium,
+                color: c.secondaryText,
+              ),
+            ),
           ],
         ),
       ),
@@ -531,13 +622,20 @@ class _RowValue extends StatelessWidget {
                     hasValue ? value! : label,
                     style: TextStyle(
                       fontSize: TodoText.medium,
-                      color: hasValue ? (valueColor ?? c.primaryText) : c.secondaryText,
+                      color: hasValue
+                          ? (valueColor ?? c.primaryText)
+                          : c.secondaryText,
                     ),
                   ),
                   if (hasValue) ...[
                     const SizedBox(width: 6),
-                    Text(label,
-                        style: TextStyle(fontSize: TodoText.s, color: c.secondaryText)),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: TodoText.s,
+                        color: c.secondaryText,
+                      ),
+                    ),
                   ],
                 ],
               ),

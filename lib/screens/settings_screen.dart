@@ -70,7 +70,10 @@ class SettingsScreen extends StatelessWidget {
           const Divider(height: 32),
           ListTile(
             leading: Icon(Icons.badge_outlined, color: c.accent),
-            title: Text('Account settings', style: TextStyle(color: c.primaryText)),
+            title: Text(
+              'Account settings',
+              style: TextStyle(color: c.primaryText),
+            ),
             subtitle: Text(
               'Name, language, timezone, defaults, reminders',
               style: TextStyle(fontSize: 12, color: c.secondaryText),
@@ -87,7 +90,11 @@ class SettingsScreen extends StatelessWidget {
               'themes by their respective authors, MIT / Apache-2.0 licensed. '
               'Accent and muted tones are contrast-adjusted here so icons and '
               'small text stay legible on screen.',
-              style: TextStyle(fontSize: 11, height: 1.4, color: c.secondaryText),
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.4,
+                color: c.secondaryText,
+              ),
             ),
           ),
           ListTile(
@@ -144,7 +151,10 @@ class _Section extends StatelessWidget {
               if (subtitle != null) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: c.accent.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(4),
@@ -200,7 +210,9 @@ class _ThemeRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: TodoText.big,
                       color: selected ? c.accent : c.primaryText,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
                     ),
                   ),
                   Text(
@@ -232,9 +244,7 @@ class _Swatch extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.primaryBackground,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: theme.primaryText.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: theme.primaryText.withValues(alpha: 0.25)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,

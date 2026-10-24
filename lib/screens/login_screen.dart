@@ -122,8 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           icon: Icon(
                             _obscure ? Icons.visibility_off : Icons.visibility,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
                       validator: (v) =>

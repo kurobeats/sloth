@@ -78,33 +78,36 @@ class _SearchScreenState extends State<SearchScreen> {
       body: _searching
           ? const Center(child: CircularProgressIndicator())
           : _results.isEmpty
-              ? Center(
-                  child: Text(
-                    _controller.text.isEmpty
-                        ? 'Search your tasks'
-                        : 'No tasks found',
-                    style: TextStyle(color: c.secondaryText, fontSize: TodoText.medium),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _results.length,
-                  itemBuilder: (context, i) {
-                    final task = _results[i];
-                    return TaskTile(
-                      task: task,
-                      project: state.projectOf(task),
-                      showProject: true,
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              TaskDetailScreen(taskId: task.id, initial: task),
-                        ),
-                      ),
-                      onToggleDone: () => state.toggleDone(task),
-                      onToggleStar: () => state.toggleImportant(task),
-                    );
-                  },
+          ? Center(
+              child: Text(
+                _controller.text.isEmpty
+                    ? 'Search your tasks'
+                    : 'No tasks found',
+                style: TextStyle(
+                  color: c.secondaryText,
+                  fontSize: TodoText.medium,
                 ),
+              ),
+            )
+          : ListView.builder(
+              itemCount: _results.length,
+              itemBuilder: (context, i) {
+                final task = _results[i];
+                return TaskTile(
+                  task: task,
+                  project: state.projectOf(task),
+                  showProject: true,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          TaskDetailScreen(taskId: task.id, initial: task),
+                    ),
+                  ),
+                  onToggleDone: () => state.toggleDone(task),
+                  onToggleStar: () => state.toggleImportant(task),
+                );
+              },
+            ),
     );
   }
 }
