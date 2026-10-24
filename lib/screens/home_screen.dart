@@ -10,6 +10,7 @@ import '../widgets/task_tile.dart';
 import 'labels_screen.dart';
 import 'project_settings_screen.dart';
 import 'board_screen.dart';
+import 'notifications_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'teams_screen.dart';
@@ -549,6 +550,19 @@ class _Drawer extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            _DrawerRow(
+              icon: Icons.notifications_none,
+              label: 'Notifications',
+              trailing: state.unreadNotifications,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationsScreen(),
+                  ),
+                );
+              },
             ),
             for (final smart in SmartList.values)
               _DrawerRow(

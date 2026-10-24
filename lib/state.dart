@@ -730,6 +730,54 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ------------------------------------------------------ notifications -----
+
+  List<VikunjaNotification> notifications = const [];
+
+  int get unreadNotifications => notifications.where((n) => !n.isRead).length;
+
+  Future<String?> loadNotifications() async {
+    final client = api;
+    if (client == null) return null;
+    try {
+      notifications = await client.notifications();
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      return e.message;
+    }
+  }
+
+  Future<String?> markNotificationRead(int id) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.markNotificationRead(id);
+      notifications = [
+        for (final n in notifications)
+          if (n.id == id)
+            VikunjaNotification(
+              id: n.id,
+              name: n.name,
+              created: n.created,
+              readAt: DateTime.now(),
+              doer: n.doer,
+              taskId: n.taskId,
+              taskTitle: n.taskTitle,
+              projectTitle: n.projectTitle,
+              commentText: n.commentText,
+              teamTitle: n.teamTitle,
+            )
+          else
+            n,
+      ];
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
   // ------------------------------------------------------------- kanban ----
 
   /// Kanban columns for a project, or null when it has no kanban view.

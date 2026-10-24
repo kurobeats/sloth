@@ -355,6 +355,13 @@ class VikunjaApi {
   }
 
   /// Uploads one file as a multipart attachment.
+  Future<List<VikunjaNotification>> notifications() =>
+      _list('/notifications', VikunjaNotification.fromJson);
+
+  /// Marks one notification read (or unread) — `{read: bool}`.
+  Future<void> markNotificationRead(int id, {bool read = true}) =>
+      _send('POST', '/notifications/$id', body: {'read': read});
+
   Future<void> uploadAttachment(
     int taskId,
     String filename,

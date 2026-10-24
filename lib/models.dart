@@ -628,6 +628,119 @@ class VikunjaLinkShare {
   );
 }
 
+/// A Vikunja notification. The payload shape depends on [name]; the fields
+/// below cover the ones the app shows.
+class VikunjaNotification {
+  const VikunjaNotification({
+    required this.id,
+    required this.name,
+    this.created,
+    this.readAt,
+    this.doer,
+    this.taskId,
+    this.taskTitle,
+    this.projectTitle,
+    this.commentText,
+    this.teamTitle,
+  });
+
+  final int id;
+  final String name;
+  final DateTime? created;
+  final DateTime? readAt;
+  final String? doer;
+  final int? taskId;
+  final String? taskTitle;
+  final String? projectTitle;
+  final String? commentText;
+  final String? teamTitle;
+
+  /// Vikunja writes a zero timestamp for "not read yet".
+  bool get isRead => readAt != null && readAt!.year > 1;
+
+  /// Headline: what happened, to what.
+  String get title {
+    final who = doer ?? 'Someone';
+    switch (name) {
+      case 'task.assigned':
+        return '$who assigned you $taskTitle'.trim();
+      case 'task.comment':
+        return '$who commented on $taskTitle'.trim();
+      case 'task.overdue':
+        return '$taskTitle is overdue';
+      case 'task.deleted':
+        return '$who deleted $taskTitle'.trim();
+      case 'task.mention':
+        return '$who mentioned you on $taskTitle'.trim();
+      case 'team.member.added':
+        return 'You were added to ${teamTitle ?? 'a team'}';
+      case 'project.shared':
+        return '${projectTitle ?? 'A project'} was shared with you';
+      default:
+        return name;
+    }
+  }
+
+  /// Second line: the comment body, otherwise the project.
+  String? get subtitle {
+    if (commentText != null && commentText!.isNotEmpty) return commentText;
+    if (projectTitle != null && projectTitle!.isNotEmpty) return projectTitle;
+    if (teamTitle != null && teamTitle!.isNotEmpty) {
+      return doer == null ? teamTitle : 'Added by $doer';
+    }
+    return null;
+  }
+
+  factory VikunjaNotification.fromJson(Map<String, dynamic> j) {
+    final payload = j['notification'] is Map<String, dynamic>
+        ? j['notification'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    String? text(String key) {
+      final value = payload[key];
+      if (value is String && value.isNotEmpty) return value;
+      return null;
+    }
+
+    Map<String, dynamic> nested(String key) =>
+        payload[key] is Map<String, dynamic>
+        ? payload[key] as Map<String, dynamic>
+        : const <String, dynamic>{};
+
+    final doer = nested('doer');
+    final task = nested('task');
+    final project = nested('project');
+    final team = nested('team');
+    final comment = nested('comment');
+
+    return VikunjaNotification(
+      id: j['id'] as int? ?? 0,
+      name: j['name'] as String? ?? '',
+      created: _date(j['created']),
+      readAt: _date(j['read_at']),
+      doer: (doer['name'] as String?) ?? text('doer'),
+      taskId: (task['id'] as num?)?.toInt(),
+      taskTitle: task['title'] as String?,
+      projectTitle: project['title'] as String?,
+      commentText: comment['comment'] as String?,
+      teamTitle: team['title'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'created': created?.toUtc().toIso8601String(),
+    'read_at': readAt?.toUtc().toIso8601String(),
+    'notification': {
+      'doer': {'name': doer},
+      'task': {'id': taskId, 'title': taskTitle},
+      'project': {'title': projectTitle},
+      'comment': {'comment': commentText},
+      'team': {'title': teamTitle},
+    },
+  };
+}
+
 class VikunjaAttachment {
   const VikunjaAttachment({
     required this.id,
