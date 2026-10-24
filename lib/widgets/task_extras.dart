@@ -5,11 +5,184 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models.dart';
+import '../screens/task_detail_screen.dart';
+import '../screens/team_detail_screen.dart' show showUserSearch;
 import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
-import '../widgets/offline_banner.dart';
-import '../screens/team_detail_screen.dart' show showUserSearch;
+import 'offline_banner.dart';
+
+// --------------------------------------------------------------- tiles -----
+// Presentation only: no AppScope, no network. The sections below wire these to
+// the app state, so the tiles can be tested on their own.
+
+class RelationTile extends StatelessWidget {
+  const RelationTile({
+    super.key,
+    required this.relation,
+    required this.onOpen,
+    required this.onToggleDone,
+    required this.onRemove,
+  });
+
+  final VikunjaRelation relation;
+  final VoidCallback onOpen;
+  final VoidCallback onToggleDone;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    final isSubtask = relation.kind == VikunjaRelation.subtask;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: isSubtask
+          ? IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: relation.done ? 'Mark task undone' : 'Mark task done',
+              icon: Icon(
+                relation.done
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
+                size: 18,
+                color: relation.done ? c.accent : c.secondaryText,
+              ),
+              onPressed: onToggleDone,
+            )
+          : Icon(Icons.link, size: 18, color: c.accent),
+      title: Text(
+        relation.title,
+        style: TextStyle(
+          color: relation.done ? c.secondaryText : c.primaryText,
+          decoration: relation.done ? TextDecoration.lineThrough : null,
+        ),
+      ),
+      subtitle: Text(
+        VikunjaRelation.label(relation.kind),
+        style: TextStyle(fontSize: 11, color: c.secondaryText),
+      ),
+      onTap: onOpen,
+      trailing: IconButton(
+        tooltip: 'Remove relation',
+        icon: Icon(Icons.close, size: 16, color: c.secondaryText),
+        onPressed: onRemove,
+      ),
+    );
+  }
+}
+
+class AttachmentTile extends StatelessWidget {
+  const AttachmentTile({
+    super.key,
+    required this.attachment,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final VikunjaAttachment attachment;
+  final VoidCallback onOpen;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: Icon(Icons.attach_file, size: 18, color: c.accent),
+      title: Text(attachment.name, style: TextStyle(color: c.primaryText)),
+      subtitle: Text(
+        attachment.readableSize,
+        style: TextStyle(fontSize: 11, color: c.secondaryText),
+      ),
+      onTap: onOpen,
+      trailing: IconButton(
+        tooltip: 'Delete attachment',
+        icon: Icon(Icons.close, size: 16, color: c.secondaryText),
+        onPressed: onRemove,
+      ),
+    );
+  }
+}
+
+class CommentTile extends StatelessWidget {
+  const CommentTile({
+    super.key,
+    required this.comment,
+    required this.canDelete,
+    required this.onDelete,
+  });
+
+  final VikunjaComment comment;
+  final bool canDelete;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    final author = comment.author?.displayName ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: c.accent,
+            child: Text(
+              author.isEmpty ? '?' : author.substring(0, 1).toUpperCase(),
+              style: TextStyle(fontSize: 9, color: c.onAccent),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      author,
+                      style: TextStyle(
+                        fontSize: TodoText.small,
+                        fontWeight: FontWeight.w600,
+                        color: c.primaryText,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      comment.created == null
+                          ? ''
+                          : TodoFormat.metadataLabel(comment.created!),
+                      style: TextStyle(fontSize: 11, color: c.secondaryText),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  comment.comment,
+                  style: TextStyle(
+                    fontSize: TodoText.medium,
+                    color: c.primaryText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (canDelete)
+            IconButton(
+              tooltip: 'Delete this comment',
+              icon: Icon(Icons.close, size: 14, color: c.secondaryText),
+              onPressed: onDelete,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------ sections -----
 
 /// Assignees for a task (`/tasks/{id}/assignees`).
 class AssigneesSection extends StatelessWidget {
@@ -34,7 +207,7 @@ class AssigneesSection extends StatelessWidget {
           action: task.assignees.isEmpty ? null : 'Add',
           onAction: () => _add(context, state),
         ),
-        if (task.assignees.isEmpty && task.assignees.isEmpty)
+        if (task.assignees.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: InkWell(
@@ -69,7 +242,11 @@ class AssigneesSection extends StatelessWidget {
               icon: Icon(Icons.close, size: 16, color: c.secondaryText),
               onPressed: () async {
                 if (!requireOnline(context, state)) return;
-                await state.unassign(task, user);
+                final error = await state.unassign(task, user);
+                if (error != null && context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(error)));
+                }
                 onChanged();
               },
             ),
@@ -127,43 +304,35 @@ class RelationsSection extends StatelessWidget {
             ),
           ),
         for (final relation in relations)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            leading: Icon(Icons.link, size: 18, color: c.accent),
-            title: Text(
-              relation.title,
-              style: TextStyle(
-                color: relation.done ? c.secondaryText : c.primaryText,
-                decoration: relation.done ? TextDecoration.lineThrough : null,
-              ),
-            ),
-            subtitle: Text(
-              VikunjaRelation.label(relation.kind),
-              style: TextStyle(fontSize: 11, color: c.secondaryText),
-            ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => _RelationTarget(taskId: relation.taskId),
-              ),
-            ),
-            trailing: IconButton(
-              tooltip: 'Remove relation',
-              icon: Icon(Icons.close, size: 16, color: c.secondaryText),
-              onPressed: () async {
-                if (!requireOnline(context, state)) return;
-                final error = await state.removeRelation(
-                  task.id,
-                  relation.kind,
-                  relation.taskId,
-                );
-                if (error != null && context.mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(error)));
-                }
-                onChanged();
-              },
-            ),
+          RelationTile(
+            relation: relation,
+            onOpen: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TaskDetailScreen(taskId: relation.taskId),
+                ),
+              );
+              onChanged();
+            },
+            onToggleDone: () async {
+              if (!requireOnline(context, state)) return;
+              final target = state.taskById(relation.taskId);
+              if (target != null) await state.toggleDone(target);
+              onChanged();
+            },
+            onRemove: () async {
+              if (!requireOnline(context, state)) return;
+              final error = await state.removeRelation(
+                task.id,
+                relation.kind,
+                relation.taskId,
+              );
+              if (error != null && context.mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(error)));
+              }
+              onChanged();
+            },
           ),
       ],
     );
@@ -196,7 +365,17 @@ class RelationsSection extends StatelessWidget {
     );
     if (kind == null || !context.mounted) return;
 
-    final target = await _pickTask(context, state);
+    final target = await showModalBottomSheet<VikunjaTask>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SizedBox(height: 420, child: _TaskSearchSheet(state: state)),
+      ),
+    );
     if (target == null) return;
     final error = await state.addRelation(task.id, target.id, kind);
     if (error != null && context.mounted) {
@@ -205,30 +384,11 @@ class RelationsSection extends StatelessWidget {
     }
     onChanged();
   }
-
-  Future<VikunjaTask?> _pickTask(BuildContext context, AppState state) async {
-    final controller = TextEditingController();
-    return showModalBottomSheet<VikunjaTask>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: SizedBox(
-          height: 420,
-          child: _TaskSearchSheet(controller: controller, state: state),
-        ),
-      ),
-    );
-  }
 }
 
 class _TaskSearchSheet extends StatefulWidget {
-  const _TaskSearchSheet({required this.controller, required this.state});
+  const _TaskSearchSheet({required this.state});
 
-  final TextEditingController controller;
   final AppState state;
 
   @override
@@ -236,11 +396,18 @@ class _TaskSearchSheet extends StatefulWidget {
 }
 
 class _TaskSearchSheetState extends State<_TaskSearchSheet> {
+  final _controller = TextEditingController();
   List<VikunjaTask> _results = const [];
   bool _searching = false;
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _search() async {
-    final query = widget.controller.text.trim();
+    final query = _controller.text.trim();
     if (query.isEmpty) return;
     setState(() => _searching = true);
     final results = await widget.state.searchTasks(query);
@@ -259,7 +426,7 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: TextField(
-            controller: widget.controller,
+            controller: _controller,
             autofocus: true,
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _search(),
@@ -307,36 +474,6 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
   }
 }
 
-class _RelationTarget extends StatelessWidget {
-  const _RelationTarget({required this.taskId});
-
-  final int taskId;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    VikunjaTask? task;
-    for (final t in state.openTasks) {
-      if (t.id == taskId) task = t;
-    }
-    return Scaffold(
-      appBar: AppBar(title: Text(task?.title ?? 'Task')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(
-            task == null
-                ? 'This task is not in the current list.'
-                : (task.description ?? 'No description'),
-            textAlign: TextAlign.center,
-            style: TextStyle(color: TodoColors.of(context).secondaryText),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// File attachments (`/tasks/{id}/attachments`).
 class AttachmentsSection extends StatefulWidget {
   const AttachmentsSection({super.key, required this.taskId});
@@ -375,20 +512,28 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
   Future<void> _upload() async {
     final state = AppScope.of(context);
     if (!requireOnline(context, state)) return;
-    final picked = await FilePicker.pickFiles();
-    if (picked.isEmpty) return;
-    final file = picked.first;
-    final bytes = await file.xFile.readAsBytes();
-    if (bytes.isEmpty) return;
     setState(() => _busy = true);
-    final error = await state.uploadAttachment(widget.taskId, file.name, bytes);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+    try {
+      final picked = await FilePicker.pickFiles();
+      if (picked.isEmpty) return;
+      final file = picked.first;
+      final bytes = await file.xFile.readAsBytes();
+      if (bytes.isEmpty) return;
+      final error = await state.uploadAttachment(
+        widget.taskId,
+        file.name,
+        bytes,
+      );
+      if (!mounted) return;
+      if (error != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error)));
+      }
+      await _load();
+    } finally {
+      // Cancelling the picker must not leave the button spinning forever.
+      if (mounted) setState(() => _busy = false);
     }
-    await _load();
   }
 
   Future<void> _share(VikunjaAttachment attachment) async {
@@ -440,28 +585,14 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
             ),
           ),
         for (final attachment in _items)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            leading: Icon(Icons.attach_file, size: 18, color: c.accent),
-            title: Text(
-              attachment.name,
-              style: TextStyle(color: c.primaryText),
-            ),
-            subtitle: Text(
-              attachment.readableSize,
-              style: TextStyle(fontSize: 11, color: c.secondaryText),
-            ),
-            onTap: () => _share(attachment),
-            trailing: IconButton(
-              tooltip: 'Delete attachment',
-              icon: Icon(Icons.close, size: 16, color: c.secondaryText),
-              onPressed: () async {
-                if (!requireOnline(context, state)) return;
-                await state.deleteAttachment(widget.taskId, attachment.id);
-                await _load();
-              },
-            ),
+          AttachmentTile(
+            attachment: attachment,
+            onOpen: () => _share(attachment),
+            onRemove: () async {
+              if (!requireOnline(context, state)) return;
+              await state.deleteAttachment(widget.taskId, attachment.id);
+              await _load();
+            },
           ),
       ],
     );
@@ -547,71 +678,14 @@ class _CommentsSectionState extends State<CommentsSection> {
             ),
           ),
         for (final comment in _items)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleAvatar(
-                  radius: 12,
-                  backgroundColor: c.accent,
-                  child: Text(
-                    (comment.author?.displayName ?? '?')
-                        .substring(0, 1)
-                        .toUpperCase(),
-                    style: TextStyle(fontSize: 9, color: c.onAccent),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            comment.author?.displayName ?? '',
-                            style: TextStyle(
-                              fontSize: TodoText.small,
-                              fontWeight: FontWeight.w600,
-                              color: c.primaryText,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            comment.created == null
-                                ? ''
-                                : TodoFormat.metadataLabel(comment.created!),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: c.secondaryText,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        comment.comment,
-                        style: TextStyle(
-                          fontSize: TodoText.medium,
-                          color: c.primaryText,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (comment.author?.id == me)
-                  IconButton(
-                    tooltip: 'Delete this comment',
-                    icon: Icon(Icons.close, size: 14, color: c.secondaryText),
-                    onPressed: () async {
-                      if (!requireOnline(context, state)) return;
-                      await state.deleteComment(widget.taskId, comment.id);
-                      await _load();
-                    },
-                  ),
-              ],
-            ),
+          CommentTile(
+            comment: comment,
+            canDelete: comment.author?.id == me,
+            onDelete: () async {
+              if (!requireOnline(context, state)) return;
+              await state.deleteComment(widget.taskId, comment.id);
+              await _load();
+            },
           ),
         Row(
           children: [

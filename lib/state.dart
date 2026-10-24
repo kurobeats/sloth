@@ -533,6 +533,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Task by id, from whatever list the app currently holds.
+  VikunjaTask? taskById(int id) {
+    for (final t in [..._allTasks, ..._projectTasks.values.expand((e) => e)]) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
   void _replace(VikunjaTask fresh) {
     final i = _allTasks.indexWhere((t) => t.id == fresh.id);
     if (i >= 0) {
