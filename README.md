@@ -38,6 +38,11 @@ web UI calls it too.
 | Add a new task… bar | `PUT /projects/{id}/tasks` |
 | Task detail | title, Done, Favorite, Description, Due Date, Reminders, Repeat, Priority, Project, Labels |
 | Labels on a task | `POST /tasks/{id}/labels/bulk` |
+| Assignees | `PUT/DELETE /tasks/{id}/assignees[/{userID}]` |
+| Related tasks (subtask, parent, related, duplicate) | `PUT/DELETE /tasks/{id}/relations[/{kind}/{otherTaskID}]` |
+| Attachments: upload, download/share, delete | `PUT/GET /tasks/{id}/attachments`, `DELETE …/{attachmentID}` |
+| Comments: read, add, delete your own | `GET/PUT /tasks/{id}/comments`, `DELETE …/{commentID}` |
+| Kanban board: columns from the project's kanban view, drag to move | `GET /projects/{id}/views/{view}/tasks`, `POST …/buckets/{bucketID}/tasks` |
 | Search | `GET /tasks?s=` |
 
 ### Projects, teams and labels
@@ -48,7 +53,7 @@ web UI calls it too.
 | Project settings: title, description, identifier, colour, favorite, archive, delete | `POST /projects/{id}`, `DELETE /projects/{id}` |
 | Share with users | `GET/PUT/POST/DELETE /projects/{id}/users[/{userID}]` |
 | Share with teams | `GET/PUT/POST/DELETE /projects/{id}/teams[/{teamID}]` |
-| Link shares: create, copy URL, delete | `GET/PUT /projects/{id}/shares`, `DELETE …/shares/{id}` |
+| Link shares: create (optionally password protected), copy URL, delete | `GET/PUT /projects/{id}/shares`, `DELETE …/shares/{id}` |
 | Saved filters | listed under **Filters** (read-only pseudo-projects) |
 | Teams: list, create, rename, delete | `GET/PUT/POST/DELETE /teams[/{id}]` |
 | Team members: add, remove, admin toggle | `GET /teams/{id}` (members embedded), `PUT/DELETE /teams/{id}/members…`, `POST /teams/{id}/members/{username}/admin` |
@@ -61,6 +66,15 @@ web UI calls it too.
 | Account settings: display name, language, timezone, week start, default project, discoverability, email/overdue reminders | `POST /user/settings/general`, read from `GET /user` |
 | Sidebar avatar | `GET /avatar/{username}?size=128` |
 | Login / logout, session expiry recovery | `POST /login`, `POST /user/settings/…` |
+
+### Offline
+
+Every successful refresh stores a snapshot on the device. Launch the app with no
+network and Sloth opens the last snapshot instead of an empty screen, with a
+banner saying how old it is. The cache is read-only: while offline the add-a-task
+bar is disabled and every edit reports *"Editing is disabled while offline.
+Reconnect to your server to make changes."* Retry re-fetches when the server is
+back.
 
 Self-hosted servers on a private CA (Caddy's internal authority, for example) are
 supported: tick **Allow self-signed certificate** on the login screen. Trust is
