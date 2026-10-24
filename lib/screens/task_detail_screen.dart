@@ -6,6 +6,8 @@ import '../models.dart';
 import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
+import '../widgets/offline_banner.dart';
+import '../widgets/task_extras.dart';
 import 'labels_screen.dart';
 
 /// Task detail: title with a check target, then note / due date / reminder /
@@ -116,7 +118,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       ),
       body: task == null
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : Column(
+              children: [
+                OfflineBanner(onRetry: state.refresh),
+                Expanded(
+                  child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
                 Row(
@@ -271,6 +277,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       ],
                     ),
                   ),
+                AssigneesSection(task: task, onChanged: _reload),
+                RelationsSection(task: task, onChanged: _reload),
+                AttachmentsSection(taskId: task.id),
+                CommentsSection(taskId: task.id),
                 const SizedBox(height: 24),
                 const Divider(height: 1),
                 Padding(
@@ -300,8 +310,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ),
                   ),
               ],
+                  ),
+                ),
+              ],
             ),
     );
+  }
+
+  Future<void> _reload() async {
+    final fresh = await AppScope.of(context).loadTask(widget.taskId);
+    if (fresh != null && mounted) setState(() => _task = fresh);
   }
 
   Future<void> _set(AppState state, VikunjaTask task, void Function(VikunjaTask) change) async {

@@ -146,6 +146,15 @@ class VikunjaUser {
     return parts.first.characters(1) + parts.last.characters(1);
   }
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'username': username,
+    'name': name ?? '',
+    'email': email ?? '',
+    'is_admin': isAdmin,
+    if (settings != null) 'settings': settings!.toJson(),
+  };
+
   factory VikunjaUser.fromJson(Map<String, dynamic> j) => VikunjaUser(
     id: j['id'] as int,
     username: j['username'] as String? ?? '',
@@ -178,6 +187,9 @@ class VikunjaLabel {
     title: j['title'] as String? ?? '',
     hexColor: _hex(j['hex_color']),
   );
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'title': title, 'hex_color': hexColor};
 }
 
 class VikunjaReminder {
@@ -239,6 +251,20 @@ class VikunjaProject {
         ?.id;
   }
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'description': description ?? '',
+    'hex_color': hexColor,
+    'is_favorite': isFavorite,
+    'is_archived': isArchived,
+    'position': position,
+    'views': [
+      for (final v in views)
+        {'id': v.id, 'title': v.title, 'view_kind': v.viewKind},
+    ],
+  };
+
   factory VikunjaProject.fromJson(Map<String, dynamic> j) => VikunjaProject(
     id: j['id'] as int,
     title: j['title'] as String? ?? '',
@@ -278,6 +304,7 @@ class VikunjaTask {
     this.updated,
     this.position = 0,
     this.commentCount = 0,
+    this.relatedTasks,
   });
 
   final int id;
@@ -303,6 +330,9 @@ class VikunjaTask {
   final DateTime? updated;
   final double position;
   final int commentCount;
+  final Map<String, dynamic>? relatedTasks;
+
+  List<VikunjaRelation> get relations => parseRelations(relatedTasks);
 
   bool get isOverdue =>
       !done && dueDate != null && dueDate!.isBefore(DateTime.now());
@@ -338,6 +368,9 @@ class VikunjaTask {
     updated: _date(j['updated']),
     position: (j['position'] as num?)?.toDouble() ?? 0,
     commentCount: (j['comment_count'] as num?)?.toInt() ?? 0,
+    relatedTasks: j['related_tasks'] is Map<String, dynamic>
+        ? j['related_tasks'] as Map<String, dynamic>
+        : null,
     labels: (j['labels'] as List? ?? const [])
         .map((e) => VikunjaLabel.fromJson(e as Map<String, dynamic>))
         .toList(),
@@ -456,6 +489,23 @@ class VikunjaTeam {
   final List<VikunjaTeamMember> members;
   final bool isPublic;
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'description': description ?? '',
+    'is_public': isPublic,
+    'members': [
+      for (final m in members)
+        {
+          'id': m.id,
+          'username': m.username,
+          'name': m.name ?? '',
+          'email': m.email ?? '',
+          'admin': m.admin,
+        },
+    ],
+  };
+
   factory VikunjaTeam.fromJson(Map<String, dynamic> j) => VikunjaTeam(
     id: j['id'] as int? ?? 0,
     name: j['name'] as String? ?? '',
@@ -529,4 +579,97 @@ class VikunjaLinkShare {
     permission: (j['permission'] as num?)?.toInt() ?? 0,
     hasPassword: (_str(j['password']) ?? '').isNotEmpty,
   );
+}
+
+class VikunjaAttachment {
+  const VikunjaAttachment({
+    required this.id,
+    required this.taskId,
+    required this.name,
+    required this.size,
+    this.mime,
+    this.created,
+  });
+
+  final int id;
+  final int taskId;
+  final String name;
+  final int size;
+  final String? mime;
+  final DateTime? created;
+
+  String get readableSize {
+    if (size < 1024) return '$size B';
+    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(0)} KB';
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  factory VikunjaAttachment.fromJson(Map<String, dynamic> j) {
+    final file = j['file'] is Map<String, dynamic>
+        ? j['file'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return VikunjaAttachment(
+      id: j['id'] as int? ?? 0,
+      taskId: j['task_id'] as int? ?? 0,
+      name: (file['name'] as String?) ?? 'attachment',
+      size: (file['size'] as num?)?.toInt() ?? 0,
+      mime: _str(file['mime']),
+      created: _date(j['created']),
+    );
+  }
+}
+
+/// Vikunja relation kinds, as used by /tasks/{id}/relations.
+class VikunjaRelation {
+  const VikunjaRelation({
+    required this.kind,
+    required this.taskId,
+    required this.title,
+    required this.done,
+  });
+
+  final int kind;
+  final int taskId;
+  final String title;
+  final bool done;
+
+  static const subtask = 1;
+  static const parentTask = 2;
+  static const related = 3;
+  static const duplicateOf = 4;
+
+  static String label(int kind) => switch (kind) {
+    subtask => 'Subtask',
+    parentTask => 'Parent task',
+    related => 'Related',
+    duplicateOf => 'Duplicate of',
+    5 => 'Duplicates',
+    6 => 'Blocking',
+    7 => 'Blocked by',
+    8 => 'Precedes',
+    9 => 'Follows',
+    10 => 'Copied from',
+    11 => 'Copied to',
+    _ => 'Relation',
+  };
+
+  static const selectableKinds = [subtask, parentTask, related, duplicateOf];
+}
+
+List<VikunjaRelation> parseRelations(Map<String, dynamic>? relatedTasks) {
+  if (relatedTasks == null) return const [];
+  final out = <VikunjaRelation>[];
+  for (final entry in relatedTasks.entries) {
+    final kind = int.tryParse(entry.key) ?? 0;
+    for (final task in (entry.value as List? ?? const [])) {
+      if (task is! Map<String, dynamic>) continue;
+      out.add(VikunjaRelation(
+        kind: kind,
+        taskId: (task['id'] as num?)?.toInt() ?? 0,
+        title: task['title'] as String? ?? '',
+        done: task['done'] as bool? ?? false,
+      ));
+    }
+  }
+  return out;
 }

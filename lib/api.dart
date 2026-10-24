@@ -109,6 +109,9 @@ class VikunjaApi {
       return decoded;
     } on TimeoutException {
       throw VikunjaException(0, 'Server did not respond in time');
+    } on http.ClientException catch (e) {
+      throw VikunjaException(
+          0, 'Cannot reach $baseUrl (${e.message}). Edits are disabled offline.');
     } on SocketException catch (e) {
       throw VikunjaException(0, 'Cannot reach $baseUrl (${e.message})');
     } on HandshakeException catch (e) {
@@ -276,6 +279,86 @@ class VikunjaApi {
   Future<List<VikunjaComment>> comments(int taskId) =>
       _list('/tasks/$taskId/comments', VikunjaComment.fromJson);
 
+  Future<void> deleteComment(int taskId, int commentId) =>
+      _send('DELETE', '/tasks/$taskId/comments/$commentId');
+
+  Future<void> addAssignee(int taskId, int userId) => _send(
+      'PUT', '/tasks/$taskId/assignees', body: {'user_id': userId});
+
+  Future<void> removeAssignee(int taskId, int userId) =>
+      _send('DELETE', '/tasks/$taskId/assignees/$userId');
+
+  Future<List<VikunjaAttachment>> attachments(int taskId) async {
+    final res = await _send('GET', '/tasks/$taskId/attachments', query: {'per_page': 50});
+    if (res is! List) return const [];
+    return res
+        .whereType<Map<String, dynamic>>()
+        .map(VikunjaAttachment.fromJson)
+        .toList();
+  }
+
+  /// Uploads one file as a multipart attachment.
+  Future<void> uploadAttachment(
+      int taskId, String filename, List<int> bytes) async {
+    final request = http.MultipartRequest(
+      'PUT',
+      _uri('/tasks/$taskId/attachments'),
+    )..headers.addAll({
+        'Authorization': 'Bearer ${token ?? ''}',
+        'User-Agent': _userAgent,
+      });
+    request.files.add(http.MultipartFile.fromBytes('files', bytes, filename: filename));
+    final streamed = await _client.send(request).timeout(_timeout * 6);
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 400) {
+      throw VikunjaException(
+        res.statusCode,
+        _messageFrom(res.bodyBytes) ?? 'Upload failed (${res.statusCode})',
+      );
+    }
+  }
+
+  Future<Uint8List> downloadAttachment(int taskId, int attachmentId) async {
+    final req = http.Request(
+      'GET',
+      _uri('/tasks/$taskId/attachments/$attachmentId'),
+    )..headers.addAll(_headers);
+    final res = await _client.send(req).timeout(_timeout * 4);
+    final bytes = await res.stream.toBytes();
+    if (res.statusCode >= 400) {
+      throw VikunjaException(res.statusCode, 'Download failed (${res.statusCode})');
+    }
+    return bytes;
+  }
+
+  Future<void> deleteAttachment(int taskId, int attachmentId) =>
+      _send('DELETE', '/tasks/$taskId/attachments/$attachmentId');
+
+  /// Relations are returned on the task itself, grouped by relation kind.
+  Future<VikunjaTask> taskWithRelations(int id) async {
+    final res = await _send('GET', '/tasks/$id');
+    return VikunjaTask.fromJson(res as Map<String, dynamic>);
+  }
+
+  Future<void> addRelation(int taskId, int otherTaskId, int relationKind) =>
+      _send('PUT', '/tasks/$taskId/relations', body: {
+        'other_task_id': otherTaskId,
+        'relation_kind': relationKind,
+      });
+
+  Future<void> removeRelation(int taskId, int relationKind, int otherTaskId) =>
+      _send('DELETE', '/tasks/$taskId/relations/$relationKind/$otherTaskId');
+
+  String? _messageFrom(List<int> body) {
+    try {
+      final decoded = jsonDecode(utf8.decode(body));
+      if (decoded is Map && decoded['message'] is String) {
+        return decoded['message'] as String;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<VikunjaComment> addComment(int taskId, String comment) async {
     final res = await _send('PUT', '/tasks/$taskId/comments',
         body: {'comment': comment});
@@ -387,9 +470,12 @@ class VikunjaApi {
   }
 
   Future<VikunjaLinkShare> createLinkShare(int projectId,
-      {required String name, required int permission}) async {
-    final res = await _send('PUT', '/projects/$projectId/shares',
-        body: {'name': name, 'permission': permission});
+      {required String name, required int permission, String? password}) async {
+    final res = await _send('PUT', '/projects/$projectId/shares', body: {
+      'name': name,
+      'permission': permission,
+      if (password != null && password.isNotEmpty) 'password': password,
+    });
     return VikunjaLinkShare.fromJson(res as Map<String, dynamic>);
   }
 

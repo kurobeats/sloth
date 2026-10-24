@@ -10,11 +10,15 @@ class EntryBar extends StatefulWidget {
     required this.onSubmit,
     this.projectName,
     this.hint = 'Add a new task…',
+    this.enabled = true,
+    this.disabledHint,
   });
 
   final Future<void> Function(String title) onSubmit;
   final String? projectName;
   final String hint;
+  final bool enabled;
+  final String? disabledHint;
 
   @override
   State<EntryBar> createState() => _EntryBarState();
@@ -76,10 +80,13 @@ class _EntryBarState extends State<EntryBar> {
                   textInputAction: TextInputAction.done,
                   textCapitalization: TextCapitalization.sentences,
                   onSubmitted: (_) => _submit(),
+                  enabled: widget.enabled,
                   decoration: InputDecoration(
                     isDense: true,
                     border: InputBorder.none,
-                    hintText: widget.hint,
+                    hintText: widget.enabled
+                        ? widget.hint
+                        : (widget.disabledHint ?? widget.hint),
                     hintStyle: TextStyle(
                       fontSize: TodoText.big,
                       color: c.secondaryText,
@@ -88,7 +95,7 @@ class _EntryBarState extends State<EntryBar> {
                 ),
               ),
               IconButton(
-                onPressed: _busy ? null : _submit,
+                onPressed: (_busy || !widget.enabled) ? null : _submit,
                 icon: Icon(Icons.arrow_upward_rounded, color: c.accent),
                 tooltip: 'Add',
               ),

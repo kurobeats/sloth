@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
 import 'models.dart';
+import 'offline_cache.dart';
 import 'todo_theme.dart';
 
 enum SmartList {
@@ -72,6 +73,18 @@ class AppState extends ChangeNotifier {
 
   /// Last server used, so the login form can prefill it (e.g. after expiry).
   String? lastServer;
+
+  /// True when the visible data came from the on-disk snapshot.
+  bool offline = false;
+
+  static const offlineEditError =
+      'Editing is disabled while offline. Reconnect to your server to make changes.';
+
+  /// Every write path checks this; offline is read-only.
+  bool get canEdit => !offline;
+  DateTime? cachedAt;
+
+  OfflineCache? _cache;
   bool allowSelfSigned = false;
 
   List<VikunjaProject> projects = const [];
@@ -150,19 +163,45 @@ class AppState extends ChangeNotifier {
           (await _storage.read(key: _kAllowSelfSigned)) == 'true';
       if (base != null && token != null && token.isNotEmpty) {
         lastServer = base;
+        final client = VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)
+          ..token = token;
+        api = client;
+        baseUrl = base;
+        _cache = OfflineCache(key: 'cache:$base');
+
+        // Paint from the snapshot immediately; it is the only thing that works
+        // when the server is unreachable.
+        final hadCache = await _loadCache();
         try {
-          await _connect(
-            VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)..token = token,
-            persist: false,
-          );
+          await _connect(client, persist: false);
           await refresh();
         } on VikunjaException catch (e) {
           if (e.isUnauthorized) {
-            // Expired session: keep the server, drop the token, ask for login.
             await _storage.delete(key: _kToken);
+            api?.close();
+            api = null;
+            user = null;
+            offline = false;
             error = 'Your session expired. Please log in again.';
-          } else {
+          } else if (!hadCache) {
             error = e.message;
+            api?.close();
+            api = null;
+            user = null;
+          } else {
+            // Keep the cached view, read-only.
+            offline = true;
+            error = null;
+          }
+        } catch (e) {
+          if (!hadCache) {
+            error = 'Cannot reach $base. Check the server or your connection.';
+            api?.close();
+            api = null;
+            user = null;
+          } else {
+            offline = true;
+            error = null;
           }
         }
       }
@@ -210,6 +249,7 @@ class AppState extends ChangeNotifier {
     user = me;
     baseUrl = client.baseUrl;
     lastServer = client.baseUrl;
+    _cache = OfflineCache(key: 'cache:${client.baseUrl}');
     avatar = await client.avatar(me.username);
     allowSelfSigned = client.allowSelfSigned;
     if (persist) {
@@ -262,15 +302,19 @@ class AppState extends ChangeNotifier {
       if (selection.project != null) {
         await _loadProjectTasks();
       }
+      offline = false;
+      error = null;
+      await _saveCache();
     } on VikunjaException catch (e) {
       if (e.isUnauthorized) {
         await signOut();
         error = 'Your session expired. Please log in again.';
       } else {
-        error = e.message;
+        // No server: keep whatever the cache gave us.
+        if (!await _loadCache()) error = e.message;
       }
     } catch (e) {
-      error = e.toString();
+      if (!await _loadCache()) error = e.toString();
     } finally {
       loading = false;
       notifyListeners();
@@ -447,6 +491,11 @@ class AppState extends ChangeNotifier {
   Future<void> mutate(VikunjaTask task, void Function(VikunjaTask) change) async {
     final client = api;
     if (client == null) return;
+    if (offline) {
+      error = offlineEditError;
+      notifyListeners();
+      return;
+    }
     change(task);
     notifyListeners();
     try {
@@ -476,6 +525,11 @@ class AppState extends ChangeNotifier {
   Future<VikunjaTask?> addTask(String title, {VikunjaProject? project}) async {
     final client = api;
     if (client == null) return null;
+    if (offline) {
+      error = offlineEditError;
+      notifyListeners();
+      return null;
+    }
     final writable = writableProjects;
     final target = project ??
         (selection.project != null && selection.project!.id > 0
@@ -533,6 +587,11 @@ class AppState extends ChangeNotifier {
   Future<void> deleteTask(VikunjaTask task) async {
     final client = api;
     if (client == null) return;
+    if (offline) {
+      error = offlineEditError;
+      notifyListeners();
+      return;
+    }
     _allTasks = _allTasks.where((t) => t.id != task.id).toList();
     _projectTasks[task.projectId]?.removeWhere((t) => t.id == task.id);
     notifyListeners();
@@ -556,6 +615,7 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------- teams & shares --
 
   Future<String?> createTeam(String name, {String? description}) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -571,8 +631,178 @@ class AppState extends ChangeNotifier {
   VikunjaUserSettings get userSettings =>
       user?.settings ?? const VikunjaUserSettings();
 
+  // ------------------------------------------------------------- cache -----
+
+  Future<void> _saveCache() async {
+    final snapshot = <String, dynamic>{
+      'savedAt': DateTime.now().toIso8601String(),
+      'user': user?.toJson(),
+      'projects': [for (final p in projects) p.toJson()],
+      'labels': [for (final l in labels) l.toJson()],
+      'teams': [for (final t in teams) t.toJson()],
+      'tasks': [for (final t in _allTasks) t.toJson()],
+    };
+    await _cache?.save(snapshot);
+  }
+
+  /// Returns true when a snapshot was applied.
+  Future<bool> _loadCache() async {
+    final snapshot = await _cache?.load();
+    if (snapshot == null) return false;
+    try {
+      final cachedUser = snapshot['user'];
+      if (cachedUser is Map<String, dynamic>) {
+        user = user ?? VikunjaUser.fromJson(cachedUser);
+      }
+      projects = (snapshot['projects'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(VikunjaProject.fromJson)
+          .toList();
+      labels = (snapshot['labels'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(VikunjaLabel.fromJson)
+          .toList();
+      teams = (snapshot['teams'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(VikunjaTeam.fromJson)
+          .toList();
+      _allTasks = (snapshot['tasks'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(VikunjaTask.fromJson)
+          .toList();
+      _projectTasks = {};
+      cachedAt = DateTime.tryParse(snapshot['savedAt'] as String? ?? '');
+      offline = true;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ------------------------------------------------- comments / assignees --
+
+  Future<List<VikunjaComment>> commentsOf(int taskId) async {
+    try {
+      return await api?.comments(taskId) ?? const [];
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      rethrow;
+    }
+  }
+
+  Future<String?> addComment(int taskId, String text) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.addComment(taskId, text);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> deleteComment(int taskId, int commentId) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.deleteComment(taskId, commentId);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> assign(VikunjaTask task, VikunjaUser user) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.addAssignee(task.id, user.id);
+      final fresh = await api?.task(task.id);
+      if (fresh != null) _replace(fresh);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> unassign(VikunjaTask task, VikunjaUser user) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.removeAssignee(task.id, user.id);
+      final fresh = await api?.task(task.id);
+      if (fresh != null) _replace(fresh);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  // ------------------------------------------------------- attachments -----
+
+  Future<List<VikunjaAttachment>> attachmentsOf(int taskId) async {
+    try {
+      return await api?.attachments(taskId) ?? const [];
+    } on VikunjaException catch (e) {
+      if (e.isUnauthorized) await signOut();
+      rethrow;
+    }
+  }
+
+  Future<String?> uploadAttachment(int taskId, String name, List<int> bytes) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.uploadAttachment(taskId, name, bytes);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> deleteAttachment(int taskId, int attachmentId) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.deleteAttachment(taskId, attachmentId);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<Uint8List?> downloadAttachment(int taskId, int attachmentId) async {
+    try {
+      return await api?.downloadAttachment(taskId, attachmentId);
+    } on VikunjaException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------- relations ----
+
+  Future<String?> addRelation(int taskId, int otherTaskId, int kind) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.addRelation(taskId, otherTaskId, kind);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> removeRelation(int taskId, int kind, int otherTaskId) async {
+    if (offline) return offlineEditError;
+    try {
+      await api?.removeRelation(taskId, kind, otherTaskId);
+      return null;
+    } on VikunjaException catch (e) {
+      return e.message;
+    }
+  }
+
   Future<String?> createLabel(String title,
       {String hexColor = '', String description = ''}) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -588,6 +818,7 @@ class AppState extends ChangeNotifier {
 
   Future<String?> updateLabel(VikunjaLabel label,
       {required String title, String? hexColor, String? description}) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -602,6 +833,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> deleteLabel(VikunjaLabel label) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -652,6 +884,7 @@ class AppState extends ChangeNotifier {
       );
 
   Future<String?> setTaskLabels(VikunjaTask task, List<VikunjaLabel> labels) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -666,6 +899,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> saveUserSettings(VikunjaUserSettings settings) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -680,6 +914,7 @@ class AppState extends ChangeNotifier {
 
   Future<String?> saveTeam(VikunjaTeam team,
       {required String name, String? description}) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -693,6 +928,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> deleteTeam(VikunjaTeam team) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -727,6 +963,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> addTeamMember(int teamId, String username) async {
+    if (offline) return offlineEditError;
     try {
       await api?.addTeamMember(teamId, username);
       await reloadTeams();
@@ -737,6 +974,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> removeTeamMember(int teamId, String username) async {
+    if (offline) return offlineEditError;
     try {
       await api?.removeTeamMember(teamId, username);
       await reloadTeams();
@@ -747,6 +985,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> toggleTeamMemberAdmin(int teamId, String username) async {
+    if (offline) return offlineEditError;
     try {
       await api?.toggleTeamMemberAdmin(teamId, username);
       await reloadTeams();
@@ -774,6 +1013,11 @@ class AppState extends ChangeNotifier {
     bool? isFavorite,
     bool? isArchived,
   }) async {
+    if (offline) {
+      error = offlineEditError;
+      notifyListeners();
+      return;
+    }
     final client = api;
     if (client == null) return;
     try {
@@ -796,6 +1040,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> deleteProject(VikunjaProject project) async {
+    if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
@@ -815,6 +1060,7 @@ class AppState extends ChangeNotifier {
   Future<void> refreshShares() async => notifyListeners();
 
   Future<String?> shareWithTeam(int projectId, int teamId, int permission) async {
+    if (offline) return offlineEditError;
     try {
       await api?.addProjectTeam(projectId, teamId, permission);
       notifyListeners();
@@ -825,6 +1071,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> setTeamShare(int projectId, int teamId, int permission) async {
+    if (offline) return offlineEditError;
     try {
       await api?.updateProjectTeam(projectId, teamId, permission);
       notifyListeners();
@@ -835,6 +1082,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> unshareTeam(int projectId, int teamId) async {
+    if (offline) return offlineEditError;
     try {
       await api?.removeProjectTeam(projectId, teamId);
       notifyListeners();
@@ -845,6 +1093,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> shareWithUser(int projectId, int userId, int permission) async {
+    if (offline) return offlineEditError;
     try {
       await api?.addProjectUser(projectId, userId, permission);
       notifyListeners();
@@ -855,6 +1104,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> setUserShare(int projectId, int userId, int permission) async {
+    if (offline) return offlineEditError;
     try {
       await api?.updateProjectUser(projectId, userId, permission);
       notifyListeners();
@@ -865,6 +1115,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> unshareUser(int projectId, int userId) async {
+    if (offline) return offlineEditError;
     try {
       await api?.removeProjectUser(projectId, userId);
       notifyListeners();

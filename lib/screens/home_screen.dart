@@ -5,6 +5,7 @@ import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
 import '../widgets/entry_bar.dart';
+import '../widgets/offline_banner.dart';
 import '../widgets/task_tile.dart';
 import 'labels_screen.dart';
 import 'project_settings_screen.dart';
@@ -41,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _add(String title) async {
     final state = AppScope.of(context);
+    if (!requireOnline(context, state)) return;
     VikunjaProject? target = state.selection.project;
     if (target == null) {
       final projects = state.writableProjects.where((p) => !p.isArchived).toList();
@@ -166,6 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
+          OfflineBanner(onRetry: state.refresh),
           Expanded(
             child: RefreshIndicator(
               color: c.accent,
@@ -173,7 +176,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _body(state, open, completed, c),
             ),
           ),
-          EntryBar(onSubmit: _add),
+          EntryBar(
+            onSubmit: _add,
+            enabled: state.canEdit,
+            disabledHint: 'Editing is disabled while offline',
+          ),
         ],
       ),
     );
@@ -213,9 +220,15 @@ class _HomeScreenState extends State<HomeScreen> {
         project: state.projectOf(task),
         showProject: showProject,
         onTap: () => _openTask(task),
-        onToggleDone: () => state.toggleDone(task),
-        onToggleStar: () => state.toggleImportant(task),
-        onLongPress: () => _taskMenu(state, task),
+        onToggleDone: () {
+          if (requireOnline(context, state)) state.toggleDone(task);
+        },
+        onToggleStar: () {
+          if (requireOnline(context, state)) state.toggleImportant(task);
+        },
+        onLongPress: () {
+          if (requireOnline(context, state)) _taskMenu(state, task);
+        },
       ));
     }
 
