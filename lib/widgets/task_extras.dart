@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -392,10 +394,15 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
   Future<void> _share(VikunjaAttachment attachment) async {
     final state = AppScope.of(context);
     final bytes = await state.downloadAttachment(widget.taskId, attachment.id);
-    if (bytes == null || !mounted) return;
+    if (bytes == null) return;
+    // Share needs a real file to keep the original name and mime type.
+    final dir = await Directory.systemTemp.createTemp('sloth-share');
+    final name = attachment.name.replaceAll(RegExp(r'[/\\]'), '_');
+    final file = await File('${dir.path}/$name').writeAsBytes(bytes);
     await Share.shareXFiles([
-      XFile.fromData(bytes, name: attachment.name, mimeType: attachment.mime),
+      XFile(file.path, name: name, mimeType: attachment.mime),
     ]);
+    await dir.delete(recursive: true).catchError((_) => dir);
   }
 
   @override
