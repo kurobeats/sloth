@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sloth/todo_theme.dart';
 import 'package:sloth/widgets/entry_bar.dart';
 
-Widget host(Future<void> Function(String title) onSubmit) => MaterialApp(
+Widget host(Future<bool> Function(String title) onSubmit) => MaterialApp(
   theme: buildTodoTheme(TodoColors.gruvboxLight),
   home: Scaffold(body: EntryBar(onSubmit: onSubmit)),
 );
@@ -14,7 +14,7 @@ void main() {
     await tester.pumpWidget(
       host((title) async {
         submitted.add(title);
-        throw Exception('offline');
+        return false;
       }),
     );
 
@@ -34,7 +34,10 @@ void main() {
   testWidgets('a successful add clears the bar', (tester) async {
     final submitted = <String>[];
     await tester.pumpWidget(
-      host((title) async => submitted.add(title)),
+      host((title) async {
+        submitted.add(title);
+        return true;
+      }),
     );
 
     await tester.enterText(find.byType(TextField), 'Buy milk');

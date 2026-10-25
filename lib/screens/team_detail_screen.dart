@@ -131,8 +131,15 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await state.deleteTeam(team);
-    if (mounted) Navigator.of(context).pop();
+    final error = await state.deleteTeam(team);
+    if (!mounted) return;
+    if (error != null) {
+      // Popping regardless left the screen on a team the server still has.
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    Navigator.of(context).pop();
   }
 
   @override

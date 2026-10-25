@@ -15,7 +15,9 @@ class EntryBar extends StatefulWidget {
     this.disabledHint,
   });
 
-  final Future<void> Function(String title) onSubmit;
+  /// Resolves to true when the task reached the server. The bar clears the draft
+  /// only then, so a rejected add keeps what the user typed.
+  final Future<bool> Function(String title) onSubmit;
   final String? projectName;
   final String hint;
   final bool enabled;
@@ -57,14 +59,15 @@ class _EntryBarState extends State<EntryBar> {
     final title = _controller.text.trim();
     if (title.isEmpty || _busy) return;
     setState(() => _busy = true);
+    var landed = false;
     try {
-      await widget.onSubmit(title);
-      // Only clear once the add landed, so a failed one keeps the draft.
-      if (mounted) _controller.clear();
+      landed = await widget.onSubmit(title);
     } catch (_) {
       // The caller surfaces its own error; the text stays for a retry.
     }
     if (mounted) {
+      // Only clear once the add landed, so a failed one keeps the draft.
+      if (landed) _controller.clear();
       setState(() => _busy = false);
       _focus.requestFocus();
     }

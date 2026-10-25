@@ -42,9 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
     SmartList.assigned => Icons.person_outline,
   };
 
-  Future<void> _add(String title) async {
+  /// Returns true when the task reached the server, so [EntryBar] clears the
+  /// draft only then. A failure keeps the text and says why: the old path
+  /// returned void and the bar cleared the title anyway.
+  Future<bool> _add(String title) async {
     final state = AppScope.of(context);
-    if (!requireOnline(context, state)) return;
+    if (!requireOnline(context, state)) return false;
     VikunjaProject? target = state.selection.project;
     if (target == null) {
       final projects = state.writableProjects
@@ -55,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // like the app lost it; say what is missing instead.
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Create a list first')));
-        return;
+        return false;
       }
       if (projects.length > 1) {
         target = await showModalBottomSheet<VikunjaProject>(
@@ -92,8 +95,14 @@ class _HomeScreenState extends State<HomeScreen> {
         target = projects.first;
       }
     }
-    if (target == null) return;
-    await state.addTask(title, project: target);
+    if (target == null) return false;
+    final created = await state.addTask(title, project: target);
+    if (created != null) return true;
+    if (!mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(state.error ?? 'Could not add the task')),
+    );
+    return false;
   }
 
   Future<void> _openTask(VikunjaTask task) async {
@@ -125,10 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    // `deleteTask` reports failures through `state.error`.
-    await state.deleteTask(task);
+    final error = await state.deleteTask(task);
     if (!mounted) return;
-    final error = state.error;
     if (error != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));

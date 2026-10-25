@@ -38,8 +38,18 @@ bool _listEq<T>(List<T> a, List<T> b) {
 /// Midnight of [t]'s day.
 DateTime startOfDay(DateTime t) => DateTime(t.year, t.month, t.day);
 
-/// Exclusive upper bound of "today" for [now]: tomorrow's midnight.
-DateTime endOfToday(DateTime now) => startOfDay(now).add(const Duration(days: 1));
+/// Whole days between two calendar dates. Local midnights are 23 or 25 hours
+/// apart on a DST day, which makes `inDays` round wrongly; UTC days are exact.
+int daysBetween(DateTime a, DateTime b) => DateTime.utc(
+  a.year,
+  a.month,
+  a.day,
+).difference(DateTime.utc(b.year, b.month, b.day)).inDays;
+
+/// Exclusive upper bound of "today" for [now]: tomorrow's midnight, built from
+/// calendar components so a 23-hour DST day cannot overshoot into the next one.
+DateTime endOfToday(DateTime now) =>
+    DateTime(now.year, now.month, now.day + 1);
 
 class VikunjaUserSettings {
   const VikunjaUserSettings({
@@ -355,6 +365,7 @@ class VikunjaProject {
     required this.title,
     this.description,
     this.hexColor = '',
+    this.identifier,
     this.isFavorite = false,
     this.isArchived = false,
     this.views = const [],
@@ -365,6 +376,11 @@ class VikunjaProject {
   final String title;
   final String? description;
   final String hexColor;
+
+  /// Task-identifier prefix ("HOME-12"), empty when disabled. Vikunja clears it
+  /// when the update body leaves the key out, so it has to be modelled and sent.
+  final String? identifier;
+
   final bool isFavorite;
   final bool isArchived;
   final List<VikunjaView> views;
@@ -392,6 +408,7 @@ class VikunjaProject {
     'title': title,
     'description': description ?? '',
     'hex_color': hexColor,
+    'identifier': identifier ?? '',
     'is_favorite': isFavorite,
     'is_archived': isArchived,
     'position': position,
@@ -406,6 +423,7 @@ class VikunjaProject {
     title: j['title'] as String? ?? '',
     description: _str(j['description']),
     hexColor: _hex(j['hex_color']),
+    identifier: _str(j['identifier']),
     isFavorite: j['is_favorite'] as bool? ?? false,
     isArchived: j['is_archived'] as bool? ?? false,
     position: (j['position'] as num?)?.toDouble() ?? 0,
@@ -421,6 +439,7 @@ class VikunjaProject {
       other.title == title &&
       other.description == description &&
       other.hexColor == hexColor &&
+      other.identifier == identifier &&
       other.isFavorite == isFavorite &&
       other.isArchived == isArchived &&
       other.position == position &&
@@ -432,6 +451,7 @@ class VikunjaProject {
     title,
     description,
     hexColor,
+    identifier,
     isFavorite,
     isArchived,
     position,
@@ -442,6 +462,7 @@ class VikunjaProject {
     String? title,
     String? description,
     String? hexColor,
+    String? identifier,
     bool? isFavorite,
     bool? isArchived,
     List<VikunjaView>? views,
@@ -451,6 +472,7 @@ class VikunjaProject {
     title: title ?? this.title,
     description: description ?? this.description,
     hexColor: hexColor ?? this.hexColor,
+    identifier: identifier ?? this.identifier,
     isFavorite: isFavorite ?? this.isFavorite,
     isArchived: isArchived ?? this.isArchived,
     views: views ?? this.views,

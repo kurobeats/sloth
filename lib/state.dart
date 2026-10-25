@@ -117,6 +117,7 @@ class AppState extends ChangeNotifier {
 
   static const _kBase = 'vikunja_base';
   static const _kToken = 'vikunja_token';
+  static const _kRefresh = 'vikunja_refresh';
   static const _kAllowSelfSigned = 'vikunja_allow_self_signed';
   static const _kLightTheme = 'theme_light';
   static const _kDarkTheme = 'theme_dark';
@@ -308,15 +309,19 @@ class AppState extends ChangeNotifier {
         _storage.read(key: _kBase),
         _storage.read(key: _kToken),
         _storage.read(key: _kAllowSelfSigned),
+        _storage.read(key: _kRefresh),
       ]);
       final base = saved[0];
       final token = saved[1];
       final allowBadCert = saved[2] == 'true';
+      final refreshCookie = saved[3] ?? '';
       // The server is remembered even with no token, so the login form can
       // prefill it after a logout.
       lastServer = base;
       if (base != null && token != null && token.isNotEmpty) {
-        final client = _newClient(base, allowBadCert)..token = token;
+        final client = _newClient(base, allowBadCert)
+          ..token = token
+          ..refreshToken = refreshCookie;
         baseUrl = base;
         _cache = OfflineCache(key: 'cache:$base', storage: _storage);
 
@@ -329,6 +334,7 @@ class AppState extends ChangeNotifier {
         } on VikunjaException catch (e) {
           if (e.isUnauthorized) {
             await _storage.delete(key: _kToken);
+            await _storage.delete(key: _kRefresh);
             _dropClient(client);
             offline = false;
             error = sessionExpiredError;
@@ -418,6 +424,7 @@ class AppState extends ChangeNotifier {
           key: _kAllowSelfSigned,
           value: client.allowSelfSigned.toString(),
         ),
+        _storage.write(key: _kRefresh, value: client.refreshToken),
       ]);
     }
   }
@@ -462,6 +469,7 @@ class AppState extends ChangeNotifier {
     // preferences, and re-logging into a private-CA server should not require
     // ticking the box again.
     await _storage.delete(key: _kToken);
+    await _storage.delete(key: _kRefresh);
     notifyListeners();
   }
 
@@ -639,11 +647,7 @@ class AppState extends ChangeNotifier {
         // Vikunja's Upcoming view is a seven-day window from today.
         final due = t.dueDate;
         if (due == null) return false;
-        final diff = DateTime(
-          due.year,
-          due.month,
-          due.day,
-        ).difference(today).inDays;
+        final diff = daysBetween(due, today);
         return diff >= 0 && diff < 7;
       case SmartList.assigned:
         final me = user?.id;
@@ -705,11 +709,7 @@ class AppState extends ChangeNotifier {
         case SmartList.upcoming:
           final due = t.dueDate;
           if (due == null) return false;
-          final diff = DateTime(
-            due.year,
-            due.month,
-            due.day,
-          ).difference(today).inDays;
+          final diff = daysBetween(due, today);
           return diff >= 0 && diff < 7;
         case SmartList.assigned:
           final me = user?.id;
@@ -933,14 +933,12 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> deleteTask(VikunjaTask task) async {
+  /// Returns the failure message, or null when the task is gone. It does not go
+  /// through [error]: that field is shared with the poller.
+  Future<String?> deleteTask(VikunjaTask task) async {
+    if (offline) return offlineEditError;
     final client = api;
-    if (client == null) return;
-    if (offline) {
-      error = offlineEditError;
-      notifyListeners();
-      return;
-    }
+    if (client == null) return 'Not signed in';
     _allTasks = _allTasks.where((t) => t.id != task.id).toList();
     final projectList = _projectTasks[task.projectId];
     if (projectList != null) {
@@ -950,11 +948,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       await client.deleteTask(task.id);
+      notifyListeners();
+      return null;
     } on VikunjaException catch (e) {
-      error = await _failure(e);
+      final message = await _failure(e);
+      // The row was removed optimistically; put the truth back.
       await refresh();
+      notifyListeners();
+      return message;
     }
-    notifyListeners();
   }
 
   Future<void> toggleDone(VikunjaTask task) => mutate(task, (t) {
@@ -1456,6 +1458,9 @@ class AppState extends ChangeNotifier {
     if (client == null) return 'Not signed in';
     try {
       final refreshed = await client.saveUserSettings(settings);
+      // The settings call refreshes the login JWT, which rotates the refresh
+      // cookie; persist the rotated value or the next save loses it.
+      await _storage.write(key: _kRefresh, value: client.refreshToken);
       user = refreshed;
       notifyListeners();
       return null;
@@ -1573,7 +1578,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> saveProject(
+  /// Returns the failure message, or null when the project was saved. It does
+  /// not go through [error]: that field belongs to the background poller too,
+  /// so a read-back made a successful save look like a failure and a real one
+  /// look like a success.
+  Future<String?> saveProject(
     VikunjaProject project, {
     String? title,
     String? description,
@@ -1582,13 +1591,9 @@ class AppState extends ChangeNotifier {
     bool? isFavorite,
     bool? isArchived,
   }) async {
-    if (offline) {
-      error = offlineEditError;
-      notifyListeners();
-      return;
-    }
+    if (offline) return offlineEditError;
     final client = api;
-    if (client == null) return;
+    if (client == null) return 'Not signed in';
     try {
       final saved = await client.updateProject(
         project,
@@ -1604,9 +1609,9 @@ class AppState extends ChangeNotifier {
         selection = ListSelection.project(saved);
       }
       notifyListeners();
+      return null;
     } on VikunjaException catch (e) {
-      error = await _failure(e);
-      notifyListeners();
+      return _failure(e);
     }
   }
 

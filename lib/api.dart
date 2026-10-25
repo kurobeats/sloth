@@ -40,7 +40,12 @@ class VikunjaApi {
 
   String? token;
 
-  /// True when [token] is the long-lived API token minted after login. A login
+  /// Value of the server's refresh-token cookie (vikunja_refresh_token),
+  /// captured from Set-Cookie on login and every later response. Exchanging it
+  /// at /user/token/refresh yields a fresh JWT — the only credential Vikunja
+  /// accepts for /user/settings/*, which API tokens can never authorize (the
+  /// server excludes all user_* route groups from token permissions).
+  String refreshToken = '';
   /// JWT dies after 10 minutes, so AppState must not persist it as the session
   /// and should warn when only the JWT is left.
   bool sessionTokenIsDurable = false;
@@ -109,24 +114,38 @@ class VikunjaApi {
     return Uri.parse('$baseUrl/api/v1$path').replace(queryParameters: q);
   }
 
-  Map<String, String> get _headers => {
+  Map<String, String> _headers([String? bearer]) => {
     'Content-Type': 'application/json',
     'User-Agent': _userAgent,
-    if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+    if ((bearer ?? token)?.isNotEmpty == true)
+      'Authorization': 'Bearer ${bearer ?? token}',
   };
+
 
   Future<dynamic> _send(
     String method,
     String path, {
     Map<String, dynamic>? query,
     Object? body,
+    String? bearer,
+    String? cookie,
   }) async {
     final req = http.Request(method, _uri(path, query))
-      ..headers.addAll(_headers);
+      ..headers.addAll(_headers(bearer));
+    if (cookie != null && cookie.isNotEmpty) {
+      req.headers['Cookie'] = 'vikunja_refresh_token=$cookie';
+    }
     if (body != null) req.body = jsonEncode(body);
     try {
       final streamed = await _client.send(req).timeout(_timeout);
       final res = await http.Response.fromStream(streamed);
+      // The server rotates the refresh-token cookie on login and on every
+      // refresh; keeping the latest value is what keeps the exchange alive.
+      final maybeRefresh = res.headers['set-cookie'];
+      if (maybeRefresh != null) {
+        final value = _refreshCookie(maybeRefresh);
+        if (value != null) refreshToken = value;
+      }
       final text = utf8.decode(res.bodyBytes);
       dynamic decoded;
       if (text.isNotEmpty) {
@@ -385,7 +404,7 @@ class VikunjaApi {
     final req = http.Request(
       'GET',
       _uri('/avatar/${Uri.encodeComponent(username)}', {'size': size}),
-    )..headers.addAll(_headers);
+    )..headers.addAll(_headers());
     try {
       final res = await _client.send(req).timeout(_timeout);
       if (res.statusCode >= 400) return null;
@@ -441,9 +460,54 @@ class VikunjaApi {
     return VikunjaUser.fromJson(res as Map<String, dynamic>);
   }
 
+  /// Vikunja blocks API tokens from every user_* route (the server never
+  /// exposes those groups to tokens), so account settings can only be saved
+  /// with a JWT. The durable token keeps the session alive; this exchange
+  /// borrows the refresh cookie the login set to mint a fresh JWT on demand.
+  Future<String> _settingsJwt() async {
+    try {
+      final res = await _send(
+        'POST',
+        '/user/token/refresh',
+        cookie: refreshToken,
+      );
+      final t = res is Map ? res['token'] as String? : null;
+      if (t == null || t.isEmpty) {
+        throw VikunjaException(401, 'No token');
+      }
+      return t;
+    } on VikunjaException catch (e) {
+      // Not a session death: the durable token still works for everything
+      // else, so this must surface as a plain message. Anything that is not a
+      // server refusal (offline, timeout) keeps its own message untouched.
+      const refused = {401, 404, 405};
+      if (!refused.contains(e.statusCode)) rethrow;
+      throw VikunjaException(
+        0,
+        e.statusCode == 404 || e.statusCode == 405
+            ? 'This Vikunja server is too old to save account settings.'
+            : 'Sign in again to change account settings — the sign-in session '
+                'is too old to refresh.',
+      );
+    }
+  }
+
+  /// Parses the refresh-token value out of a Set-Cookie header; Vikunja's
+  /// cookie is a plain hex string, so no decoding is needed.
+  static String? _refreshCookie(String setCookie) {
+    final m = RegExp('vikunja_refresh_token=([0-9a-f]+)').firstMatch(setCookie);
+    return m?.group(1);
+  }
+
   /// Saves the user's general settings and returns the refreshed user.
   Future<VikunjaUser> saveUserSettings(VikunjaUserSettings settings) async {
-    await _send('POST', '/user/settings/general', body: settings.toJson());
+    final jwt = await _settingsJwt();
+    await _send(
+      'POST',
+      '/user/settings/general',
+      body: settings.toJson(),
+      bearer: jwt,
+    );
     return currentUser();
   }
 
@@ -628,7 +692,7 @@ class VikunjaApi {
         final req = http.Request(
           'GET',
           _uri('/tasks/$taskId/attachments/$attachmentId'),
-        )..headers.addAll(_headers);
+        )..headers.addAll(_headers());
         final res = await _client.send(req).timeout(_timeout * 4);
         if (res.statusCode >= 400) {
           throw VikunjaException(
@@ -868,7 +932,10 @@ class VikunjaApi {
         'title': title ?? project.title,
         'description': description ?? project.description ?? '',
         'hex_color': hexColor ?? project.hexColor,
-        'identifier': ?identifier,
+        // Omitted means "keep what the project has": Vikunja clears the
+        // identifier on a missing key, so a caller that does not manage it must
+        // not wipe it.
+        'identifier': identifier ?? project.identifier ?? '',
         'is_favorite': isFavorite ?? project.isFavorite,
         'is_archived': isArchived ?? project.isArchived,
       },

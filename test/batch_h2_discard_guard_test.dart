@@ -44,7 +44,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildTodoTheme(TodoColors.gruvboxLight),
-          home: Scaffold(body: EntryBar(onSubmit: (title) async {})),
+          home: Scaffold(body: EntryBar(onSubmit: (title) async => true)),
         ),
       );
     }

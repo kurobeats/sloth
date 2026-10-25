@@ -51,10 +51,9 @@ class DeletingState extends AppState {
   int deletes = 0;
 
   @override
-  Future<void> deleteTask(VikunjaTask task) async {
+  Future<String?> deleteTask(VikunjaTask task) async {
     deletes++;
-    error = 'Could not delete the task';
-    notifyListeners();
+    return 'Could not delete the task';
   }
 }
 

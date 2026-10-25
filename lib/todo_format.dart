@@ -5,6 +5,15 @@ import 'package:intl/intl.dart';
 /// Relative labels ("Today", "Tomorrow", "Yesterday") then a short date
 /// ("Mon 3 Nov"), widening to include the year when it differs.
 class TodoFormat {
+  /// Whole days between two calendar dates. Comparing local midnights drifts by
+  /// an hour across a DST change, which is enough for `inDays` to round a
+  /// "tomorrow" down to "today"; UTC has no such days.
+  static int _daysBetween(DateTime a, DateTime b) => DateTime.utc(
+    a.year,
+    a.month,
+    a.day,
+  ).difference(DateTime.utc(b.year, b.month, b.day)).inDays;
+
   // One DateFormat per pattern: constructing one parses the skeleton, and every
   // task row formats at least one date per rebuild.
   static final DateFormat _weekday = DateFormat('EEEE');
@@ -21,9 +30,7 @@ class TodoFormat {
 
   static String dueLabel(DateTime due, {DateTime? now}) {
     final n = now ?? DateTime.now();
-    final today = DateTime(n.year, n.month, n.day);
-    final d = DateTime(due.year, due.month, due.day);
-    final diff = d.difference(today).inDays;
+    final diff = _daysBetween(due, n);
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
     if (diff == -1) return 'Yesterday';
@@ -35,11 +42,7 @@ class TodoFormat {
   /// Compact "Today", "Mon", "3 Nov" used inside the task metadata row.
   static String metadataLabel(DateTime due, {DateTime? now}) {
     final n = now ?? DateTime.now();
-    final diff = DateTime(
-      due.year,
-      due.month,
-      due.day,
-    ).difference(DateTime(n.year, n.month, n.day)).inDays;
+    final diff = _daysBetween(due, n);
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
     if (diff == -1) return 'Yesterday';
@@ -111,12 +114,9 @@ class TodoFormat {
 
   static String groupHeader(DateTime? day) {
     if (day == null) return 'No due date';
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final diff = day.difference(today).inDays;
+    final diff = _daysBetween(day, DateTime.now());
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
-    if (diff < 0) return _weekdayDayMonth.format(day);
     return _weekdayDayMonth.format(day);
   }
 }

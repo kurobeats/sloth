@@ -38,6 +38,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     final p = widget.project;
     _title.text = p.title;
     _description.text = p.description ?? '';
+    // Vikunja clears the identifier when the field is missing from the update
+    // body, so the screen always sends what the field holds — which means the
+    // field has to start out with the saved value, not empty.
+    _identifier.text = p.identifier ?? '';
     _hexColor = p.hexColor;
     _favorite = p.isFavorite;
     _archived = p.isArchived;
@@ -79,23 +83,24 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   }
 
   Future<void> _save(AppState state, {String? identifier}) async {
-    await state.saveProject(
+    final error = await state.saveProject(
       widget.project,
       title: _title.text.trim(),
       description: _description.text.trim(),
       hexColor: _hexColor,
       identifier:
-          identifier ??
-          (_identifier.text.trim().isEmpty ? null : _identifier.text.trim()),
+          identifier ?? (_identifier.text.trim().isEmpty
+              ? ''
+              : _identifier.text.trim()),
       isFavorite: _favorite,
       isArchived: _archived,
     );
     if (mounted) {
-      // `saveProject` reports failures through `state.error` instead of
-      // returning them, so the snackbar has to read it back.
-      final error = state.error;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error ?? 'Project saved')));
+      // The save reports its own failure now, so the snackbar no longer reads
+      // the shared `state.error` (which the poller also writes).
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error ?? 'Project saved')));
       _syncDirty();
     }
   }

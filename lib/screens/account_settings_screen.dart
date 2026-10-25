@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../state.dart';
+import '../timezones.dart';
 import '../todo_theme.dart';
 
 /// Vikunja general user settings (`POST /user/settings/general`).
@@ -32,7 +33,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   ];
 
   final _name = TextEditingController();
-  final _timezone = TextEditingController();
   VikunjaUserSettings _settings = const VikunjaUserSettings();
   bool _saving = false;
 
@@ -48,14 +48,12 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     setState(() {
       _settings = current;
       _name.text = current.name;
-      _timezone.text = current.timezone;
     });
   }
 
   @override
   void dispose() {
     _name.dispose();
-    _timezone.dispose();
     super.dispose();
   }
 
@@ -64,7 +62,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     setState(() => _saving = true);
     final updated = _settings.copyWith(
       name: _name.text.trim(),
-      timezone: _timezone.text.trim().isEmpty ? 'GMT' : _timezone.text.trim(),
+      timezone: _settings.timezone.trim().isEmpty
+          ? 'GMT'
+          : _settings.timezone.trim(),
     );
     final error = await state.saveUserSettings(updated);
     if (!mounted) return;
@@ -74,6 +74,18 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(error ?? 'Settings saved')));
+  }
+
+  /// A raw TextField with 600 items inside a DropdownButton lays out (and
+  /// overflows) the whole list even when closed, so the picker is a searchable
+  /// bottom sheet with a lazily-built list instead.
+  Future<void> _pickTimezone() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => const _TimezoneSheet(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _settings = _settings.copyWith(timezone: picked));
   }
 
   Future<void> _pickReminderTime() async {
@@ -145,13 +157,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: _timezone,
-              decoration: const InputDecoration(
-                labelText: 'Timezone',
-                helperText: 'IANA name, e.g. Australia/Sydney or GMT',
-                border: OutlineInputBorder(),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Timezone'),
+              subtitle: Text(
+                _settings.timezone.isEmpty ? 'GMT' : _settings.timezone,
+                style: TextStyle(fontSize: 12, color: c.secondaryText),
               ),
+              trailing: Icon(Icons.schedule, color: c.secondaryText),
+              onTap: _pickTimezone,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
@@ -299,6 +313,60 @@ class _SwitchRow extends StatelessWidget {
       activeThumbColor: c.accent,
       title: Text(title, style: TextStyle(color: c.primaryText)),
       onChanged: onChanged,
+    );
+  }
+}
+
+/// Searchable picker over the full IANA list.
+class _TimezoneSheet extends StatefulWidget {
+  const _TimezoneSheet();
+
+  @override
+  State<_TimezoneSheet> createState() => _TimezoneSheetState();
+}
+
+class _TimezoneSheetState extends State<_TimezoneSheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    // A List so ListView.builder's elementAt stays O(1) instead of walking a
+    // Set per row.
+    final List<String> zones = _query.isEmpty
+        ? kIanaTimezones.toList()
+        : [
+            for (final z in kIanaTimezones)
+              if (z.toLowerCase().contains(_query)) z,
+          ];
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: TextField(
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Search timezones',
+                isDense: true,
+                prefixIcon: Icon(Icons.search, color: c.secondaryText),
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemBuilder: (context, i) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text(zones.elementAt(i)),
+                onTap: () => Navigator.pop(context, zones.elementAt(i)),
+              ),
+              itemCount: zones.length,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
