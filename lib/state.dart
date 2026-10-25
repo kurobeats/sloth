@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
+import 'home_widget_sync.dart';
 import 'models.dart';
 import 'offline_cache.dart';
 import 'todo_theme.dart';
@@ -120,8 +121,7 @@ class AppState extends ChangeNotifier {
         _ => ThemeMode.system,
       };
       // Remembered per server, so the login form can prefill the box.
-      allowSelfSigned =
-          (await _storage.read(key: _kAllowSelfSigned)) == 'true';
+      allowSelfSigned = (await _storage.read(key: _kAllowSelfSigned)) == 'true';
     } catch (_) {
       // Storage unavailable: fall back to the defaults above.
     }
@@ -132,12 +132,15 @@ class AppState extends ChangeNotifier {
     lightThemeId = id;
     notifyListeners();
     await _storage.write(key: _kLightTheme, value: id);
+    // The home screen widget is painted with these colours.
+    unawaited(syncHomeWidget(this));
   }
 
   Future<void> setDarkTheme(String id) async {
     darkThemeId = id;
     notifyListeners();
     await _storage.write(key: _kDarkTheme, value: id);
+    unawaited(syncHomeWidget(this));
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -151,6 +154,7 @@ class AppState extends ChangeNotifier {
         ThemeMode.system => 'system',
       },
     );
+    unawaited(syncHomeWidget(this));
   }
 
   bool get isSignedIn => api != null && user != null;
@@ -317,6 +321,7 @@ class AppState extends ChangeNotifier {
       offline = false;
       error = null;
       await _saveCache();
+      unawaited(syncHomeWidget(this));
     } on VikunjaException catch (e) {
       if (e.isUnauthorized) {
         await signOut();
@@ -367,6 +372,23 @@ class AppState extends ChangeNotifier {
   }
 
   // ------------------------------------------------------- derived views ----
+
+  /// Every task the app holds, for the home screen widget.
+  List<VikunjaTask> get allTasksForWidget => _allTasks;
+
+  /// Open tasks due today or earlier, across all projects.
+  List<VikunjaTask> get dueTodayTasks {
+    final now = DateTime.now();
+    final tomorrow = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(const Duration(days: 1));
+    return _allTasks.where((t) {
+      final due = t.dueDate;
+      return !t.done && due != null && due.isBefore(tomorrow);
+    }).toList()..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
+  }
 
   List<VikunjaTask> get _source => selection.project != null
       ? (_projectTasks[selection.project!.id] ?? const [])
@@ -541,6 +563,7 @@ class AppState extends ChangeNotifier {
       await refresh();
     } finally {
       notifyListeners();
+      unawaited(syncHomeWidget(this));
     }
   }
 

@@ -46,6 +46,13 @@ web UI calls it too.
   <img src="docs/screenshots/project-settings.png" width="270" alt="Project settings, sharing and link shares">
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/widget-dark.png" width="360" alt="Home screen widget, dark scheme">
+  <img src="docs/screenshots/widget-light.png" width="360" alt="Home screen widget, light scheme">
+</p>
+
+Those two are the same widget with a different scheme picked in the app.
+
 ## Features
 
 ### Tasks
@@ -68,10 +75,36 @@ web UI calls it too.
 | Notifications: assignments, comments, team changes | `GET /notifications`, `POST /notifications/{id}` |
 | Kanban board: columns from the project's kanban view, drag to move | `GET /projects/{id}/views/{view}/tasks`, `POST …/buckets/{bucketID}/tasks` |
 | Search | `GET /tasks?s=` |
+| Home screen widget: "Due Today" rows, tap one to open that task | widget data comes from the same task list |
 
 Subtasks are shown as related tasks with their own done checkbox, so a checklist
 stays a Vikunja subtask relation rather than a private format. Tapping any
 related task opens it in the normal detail screen.
+
+### Notifications on the phone
+
+Vikunja has no push channel, so Sloth polls `/notifications` while it is running
+(on launch, on refresh and every ten minutes in the foreground) and posts a
+status-bar notification for each new assignment, comment, mention or team change.
+Tapping one opens the task. Nothing arrives while the app is closed — that would
+need a background worker or Vikunja webhooks.
+
+The status-bar icon is the mono sloth mark. It is white, as status bars expect,
+and the app swaps in an inverted copy whenever the active scheme is a light one,
+so the glyph stays visible on a light bar.
+
+The home screen widget shows the same "Due Today" list as the app's first screen:
+up to five rows with Vikunja's own due labels ("Yesterday", "Today"), the
+overdue ones in the accent colour, and the count in the header. Tapping a row
+opens that task; tapping the header opens the app.
+
+The widget is rounded on all four corners, wears the active scheme's accent as
+its header bar, and uses that scheme's background, text and muted colours for
+the body. It resyncs on every task change, on launch, and whenever you pick
+another theme. RemoteViews cannot tint a shape before Android 12, so the
+background and header are one small drawable per scheme
+(`android/app/src/main/res/drawable/sloth_widget_{card,header}_*.xml`); a seventh
+theme would need a matching pair — `shortcut:` note in `SlothWidgetProvider.kt`.
 
 ### Projects, teams and labels
 
@@ -130,11 +163,45 @@ comes from the active scheme. The exception is labels, whose colours are server 
 
 ## Build and install
 
+Download the newest APK from [Releases](https://github.com/kurobeats/sloth/releases):
+`app-arm64-v8a-release.apk` covers every phone made since about 2017;
+`armeabi-v7a` is for older 32-bit devices and `x86_64` for emulators. Or build it
+yourself:
+
 ```bash
 flutter pub get
 flutter build apk --release --split-per-abi
 adb install build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 ```
+
+Release APKs are signed with the debug key, here and in CI, so they install
+straight away. That is fine for a self-hosted app you build for yourself; it is
+not a Play Store key.
+
+CI lives in `.github/workflows/build.yml`: every push and pull request runs
+`flutter analyze` and `flutter test`, then builds the split-per-abi release APKs.
+Pushing a `v*` tag attaches those APKs to a GitHub release, so
+
+```bash
+git tag -a v0.2.0 -m "Sloth 0.2.0" && git push origin v0.2.0
+```
+
+is the whole release process.
+
+### iOS
+
+Sloth is Flutter, so the same source can be built for iOS: the state, API client,
+screens and widgets contain no Android code. What is Android-specific and would
+need an iOS counterpart is
+
+- the home screen widget (`android/…/SlothWidgetProvider.kt`, `res/layout/sloth_widget_*.xml`)
+  — on iOS this is a WidgetKit extension fed by the same `home_widget` data,
+- the status-bar notifications channel setup (`flutter_local_notifications`),
+- the debug cleartext-HTTP allowance.
+
+Nobody working on Sloth owns an iPhone, so it has never been built, run or
+tested on iOS. Contributions are welcome: build config, a WidgetKit extension,
+screenshots, or just a report that `flutter build ios --no-codesign` works.
 
 Package id `io.github.kurobeats.sloth`, minSdk 24, targetSdk 36. Debug builds allow
 cleartext HTTP so a local mock server can be used; release builds keep Android's
@@ -228,7 +295,9 @@ anyone else writing a client:
 
 - Table and Gantt views are not rendered; only list and kanban.
 - Offline is read-only: no offline queue, a failed write is simply reported.
-- No background reminders or push. Notifications are pulled when you open them.
+- No push and no background work: status-bar notifications only appear while the
+  app is running, and the home screen widget only refreshes when the app syncs.
+- iOS is unbuilt (see above).
 - Repeat rules can be set but not edited per-occurrence; Vikunja decides what a
   completed repeating task turns into.
 - Cleartext HTTP is release-blocked by Android's default policy.
