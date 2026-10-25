@@ -28,6 +28,18 @@
         android:text="" />
 
     <TextView
+        android:id="@+id/row_tags"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:maxEms="8"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="11sp"
+        android:textColor="#FFB0B0B0"
+        android:text="" />
+
+    <TextView
         android:id="@+id/row_meta"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

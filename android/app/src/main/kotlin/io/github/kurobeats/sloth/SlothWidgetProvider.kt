@@ -65,6 +65,12 @@ class SlothWidgetProvider : HomeWidgetProvider() {
             val item = RemoteViews(context.packageName, R.layout.sloth_widget_row)
             item.setTextViewText(R.id.row_title, row.title)
             item.setTextColor(R.id.row_title, textColour)
+            item.setTextViewText(R.id.row_tags, row.tags)
+            item.setTextColor(R.id.row_tags, mutedColour)
+            item.setViewVisibility(
+                R.id.row_tags,
+                if (row.tags.isEmpty()) View.GONE else View.VISIBLE,
+            )
             item.setTextViewText(R.id.row_meta, row.meta)
             item.setTextColor(R.id.row_meta, if (row.overdue) accentColour else mutedColour)
             item.setOnClickPendingIntent(
@@ -106,7 +112,13 @@ class SlothWidgetProvider : HomeWidgetProvider() {
         else -> R.drawable.sloth_widget_header_oceanic
     }
 
-    private data class Row(val id: Int, val title: String, val meta: String, val overdue: Boolean)
+    private data class Row(
+        val id: Int,
+        val title: String,
+        val meta: String,
+        val tags: String,
+        val overdue: Boolean,
+    )
 
     private fun parseRows(raw: String?): List<Row> {
         if (raw.isNullOrEmpty()) return emptyList()
@@ -118,6 +130,7 @@ class SlothWidgetProvider : HomeWidgetProvider() {
                     id = json.optInt("id"),
                     title = json.optString("title"),
                     meta = json.optString("meta"),
+                    tags = json.optString("tags"),
                     overdue = json.optBoolean("overdue"),
                 )
             }

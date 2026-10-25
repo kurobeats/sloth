@@ -18,6 +18,7 @@ class HomeWidgetRow {
     required this.id,
     required this.title,
     required this.meta,
+    required this.tags,
     required this.overdue,
   });
 
@@ -26,6 +27,9 @@ class HomeWidgetRow {
 
   /// "Today", "Yesterday", "Tomorrow" — Vikunja's own wording.
   final String meta;
+
+  /// The task's labels, comma separated (Vikunja calls them labels).
+  final String tags;
   final bool overdue;
 }
 
@@ -47,6 +51,7 @@ List<HomeWidgetRow> homeWidgetRows(List<VikunjaTask> tasks, {DateTime? now}) {
         id: task.id,
         title: task.title,
         meta: TodoFormat.dueLabel(task.dueDate!, now: today),
+        tags: task.labels.map((l) => l.title).join(', '),
         overdue: task.dueDate!.isBefore(
           DateTime(today.year, today.month, today.day),
         ),
@@ -60,6 +65,7 @@ String encodeHomeWidgetRows(List<HomeWidgetRow> rows) => jsonEncode([
       'id': row.id,
       'title': row.title,
       'meta': row.meta,
+      'tags': row.tags,
       'overdue': row.overdue,
     },
 ]);
