@@ -43,6 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final c = TodoColors.of(context);
     if (!_prefilled && (state.lastServer?.isNotEmpty ?? false)) {
       _server.text = state.lastServer!;
+      _allowSelfSigned = state.allowSelfSigned;
       _prefilled = true;
     }
     return Scaffold(

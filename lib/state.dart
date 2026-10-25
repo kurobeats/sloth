@@ -119,6 +119,9 @@ class AppState extends ChangeNotifier {
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
+      // Remembered per server, so the login form can prefill the box.
+      allowSelfSigned =
+          (await _storage.read(key: _kAllowSelfSigned)) == 'true';
     } catch (_) {
       // Storage unavailable: fall back to the defaults above.
     }
@@ -275,8 +278,10 @@ class AppState extends ChangeNotifier {
     _allTasks = const [];
     _projectTasks = {};
     selection = const ListSelection.smart(SmartList.dueToday);
+    // Keep the theme and the per-server certificate trust: both are device
+    // preferences, and re-logging into a private-CA server should not require
+    // ticking the box again.
     await _storage.delete(key: _kToken);
-    await _storage.delete(key: _kAllowSelfSigned);
     notifyListeners();
   }
 
