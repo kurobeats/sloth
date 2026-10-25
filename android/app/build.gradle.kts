@@ -37,9 +37,15 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // One committed keystore, so every release shares a signing identity
+            // and updates install in place (see android/sloth-release-cert.txt).
+            // Debug builds keep the machine's debug key.
+            signingConfig = signingConfigs.create("release") {
+                storeFile = file("sloth-release.jks")
+                storePassword = "sloth-release"
+                keyAlias = "sloth"
+                keyPassword = "sloth-release"
+            }
         }
     }
 }

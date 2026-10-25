@@ -730,6 +730,7 @@ class _Drawer extends StatelessWidget {
       ),
     );
     if (title == null || title.trim().isEmpty) return;
+    if (!context.mounted) return;
     try {
       final accent = Theme.of(context)
           .extension<TodoThemeExtension>()

@@ -7,8 +7,12 @@ gradle-wrapper.jar
 GeneratedPluginRegistrant.java
 .cxx/
 
-# Remember to never publicly share your keystore.
-# See https://flutter.dev/to/reference-keystore
+# Sloth is self-distributed, so its release keystore IS committed on purpose:
+# one shared identity keeps in-place updates working (android/sloth-release-cert.txt).
+# Any other keystore stays private.
 key.properties
 **/*.keystore
 **/*.jks
+
+# The release identity is public and committed (see sloth-release-cert.txt).
+!app/sloth-release.jks

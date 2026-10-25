@@ -1,0 +1,15 @@
+Sloth release signing certificate
+=================================
+
+The release keystore android/app/sloth-release.jks is committed on purpose:
+Sloth is self-distributed (GitHub releases + Obtainium), not published on
+Google Play, so it only needs a stable identity that every build shares.
+Anyone can read it, so treat it as a public identity — it protects in-place
+updates, not the app's integrity.
+
+If this fingerprint changes, every installed copy has to be uninstalled before
+it can be updated. CI fails when the keystore no longer matches it.
+
+SHA256: DB:5A:FD:86:FE:D0:DE:76:93:6B:61:93:A6:C8:AE:76:BA:54:05:57:7B:82:1F:58:9A:1E:C6:28:E6:C4:18:4B
+Alias: sloth
+Store/key password: sloth-release

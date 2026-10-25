@@ -243,7 +243,7 @@ class VikunjaApi {
         'id': label.id,
         'title': title,
         'hex_color': hexColor ?? label.hexColor,
-        if (description != null) 'description': description,
+        'description': ?description,
       },
     );
     return VikunjaLabel.fromJson(res as Map<String, dynamic>);
@@ -273,8 +273,8 @@ class VikunjaApi {
     '/tasks',
     VikunjaTask.fromJson,
     query: {
-      if (filter != null) 'filter': filter,
-      if (search != null) 's': search,
+      'filter': ?filter,
+      's': ?search,
       'sort_by': sortBy ?? 'due_date',
       'order_by': orderBy ?? 'asc',
     },
@@ -288,7 +288,7 @@ class VikunjaApi {
     '/projects/$projectId/views/$viewId/tasks',
     VikunjaTask.fromJson,
     query: {
-      if (filter != null) 'filter': filter,
+      'filter': ?filter,
       'sort_by': 'position',
       'order_by': 'asc',
     },
@@ -631,7 +631,7 @@ class VikunjaApi {
         'title': title ?? project.title,
         'description': description ?? project.description ?? '',
         'hex_color': hexColor ?? project.hexColor,
-        if (identifier != null) 'identifier': identifier,
+        'identifier': ?identifier,
         'is_favorite': isFavorite ?? project.isFavorite,
         'is_archived': isArchived ?? project.isArchived,
       },
@@ -651,7 +651,7 @@ class VikunjaApi {
     final res = await _send(
       'PUT',
       '/projects',
-      body: {'title': title, if (hexColor != null) 'hex_color': hexColor},
+      body: {'title': title, 'hex_color': ?hexColor},
     );
     return VikunjaProject.fromJson(res as Map<String, dynamic>);
   }

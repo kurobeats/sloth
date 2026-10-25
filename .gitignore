@@ -27,6 +27,8 @@ android/app/release/
 android/key.properties
 *.jks
 *.keystore
+# The release identity is public and must stay committed (see sloth-release-cert.txt).
+!android/app/sloth-release.jks
 
 # Linux desktop
 linux/flutter/ephemeral/

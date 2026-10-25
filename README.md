@@ -189,9 +189,11 @@ self-hosted tool like this one.
 4. From then on, update from inside Obtainium — Sloth has no store entry and no
    update check of its own.
 
-Release APKs are signed with the debug key, here and in CI, so they install
-straight away. That is fine for a self-hosted app you build for yourself; it is
-not a Play Store key.
+Release APKs are signed with the keystore committed at
+`android/app/sloth-release.jks`, so every release shares one identity and
+Obtainium can update the app in place. The key is public on purpose — it keeps
+updates working, it does not protect the app's integrity — and
+`android/sloth-release-cert.txt` pins its fingerprint, which CI checks.
 
 CI lives in `.github/workflows/build.yml`: every push and pull request runs
 `flutter analyze` and `flutter test`, then builds the split-per-abi release APKs.

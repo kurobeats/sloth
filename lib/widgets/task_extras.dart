@@ -544,9 +544,11 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
     final dir = await Directory.systemTemp.createTemp('sloth-share');
     final name = attachment.name.replaceAll(RegExp(r'[/\\]'), '_');
     final file = await File('${dir.path}/$name').writeAsBytes(bytes);
-    await Share.shareXFiles([
-      XFile(file.path, name: name, mimeType: attachment.mime),
-    ]);
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, name: name, mimeType: attachment.mime)],
+      ),
+    );
     await dir.delete(recursive: true).catchError((_) => dir);
   }
 

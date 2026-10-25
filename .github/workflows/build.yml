@@ -21,10 +21,15 @@ jobs:
       # Release builds only inherit permissions from the main manifest, so a
       # missing INTERNET entry there ships an APK that cannot reach any server.
       - run: grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
-      # Info-level lints (deprecations, null-aware suggestions) do not fail a
-      # build; warnings and errors do.
-      - run: flutter analyze --no-fatal-infos
+      - run: flutter analyze
       - run: flutter test
+      # A changed keystore means every installed copy has to be uninstalled
+      # before it can update, so fail here rather than after a release.
+      - name: Check the release signing key
+        run: |
+          fingerprint=$(keytool -list -v -keystore android/app/sloth-release.jks \
+            -storepass sloth-release | grep -m1 'SHA256:' | sed 's/^.*SHA256: //')
+          grep -q "$fingerprint" android/sloth-release-cert.txt
 
   apk:
     name: Release APKs
@@ -43,8 +48,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      # Signed with the debug key, same as a local `flutter build apk --release`,
-      # so the artifacts install without extra setup.
+      # Signed with the committed keystore, so releases keep one identity and
+      # install over each other.
       - run: flutter build apk --release --split-per-abi
       - uses: actions/upload-artifact@v4
         with:
