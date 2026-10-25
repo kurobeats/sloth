@@ -113,7 +113,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     if (permission == null) return;
     final error = await state.shareWithUser(
       widget.project.id,
-      user.id,
+      user.username,
       permission,
     );
     if (!mounted) return;
@@ -229,10 +229,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     VikunjaProjectShare share,
     int permission,
   ) async {
-    // A share the server sent without an id cannot be addressed.
-    final userId = share.userId;
-    if (userId == null) return;
-    await state.setUserShare(widget.project.id, userId, permission);
+    // A share the server sent without a username cannot be addressed.
+    final username = share.username;
+    if (username == null || username.isEmpty) return;
+    await state.setUserShare(widget.project.id, username, permission);
     await _load();
   }
 
@@ -240,9 +240,9 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     AppState state,
     VikunjaProjectShare share,
   ) async {
-    final userId = share.userId;
-    if (userId == null) return;
-    await state.unshareUser(widget.project.id, userId);
+    final username = share.username;
+    if (username == null || username.isEmpty) return;
+    await state.unshareUser(widget.project.id, username);
     await _load();
   }
 

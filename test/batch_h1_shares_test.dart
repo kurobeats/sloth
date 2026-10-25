@@ -49,9 +49,15 @@ class ShareServer {
       }
       if (path.endsWith('/projects/1/users')) {
         if (method == 'PUT') {
+          // Vikunja 2.x resolves the share by username; a numeric user_id is
+          // answered with 404 "The user does not exist."
+          final username = body['username'];
+          if (username is! String || username.isEmpty) {
+            return http.Response('{"message":"The user does not exist."}', 404);
+          }
           users.add({
-            'id': body['user_id'],
-            'username': 'added',
+            'id': 99,
+            'username': username,
             'name': 'Added',
             'permission': body['permission'],
           });
@@ -60,8 +66,11 @@ class ShareServer {
         return http.Response(jsonEncode(users), 200);
       }
       if (path.contains('/projects/1/users/')) {
-        final id = path.split('/').last;
-        users.removeWhere((u) => '${u['id']}' == id);
+        final who = path.split('/').last;
+        if (int.tryParse(who) != null) {
+          return http.Response('{"message":"The user does not exist."}', 404);
+        }
+        users.removeWhere((u) => u['username'] == who);
         return http.Response('{}', 200);
       }
       if (path.endsWith('/projects/1/teams')) {
@@ -167,9 +176,9 @@ void main() {
 
       final errors = [
         await state.projectShares(1),
-        await state.addUserShare(1, 7, 2),
+        await state.addUserShare(1, 'joe', 2),
         await state.addTeamShare(1, 3, 2),
-        await state.removeShare(1, userId: 7),
+        await state.removeShare(1, username: 'joe'),
         await state.removeShare(1, teamId: 3),
         await state.deleteLinkShare(1, 5),
         await state.createProject('New list'),
@@ -199,13 +208,13 @@ void main() {
       await state.projectShares(1);
       server.requests.clear();
 
-      expect(await state.addUserShare(1, 11, 2), isNull);
+      expect(await state.addUserShare(1, 'added', 2), isNull);
       expect(server.requests, ['PUT /api/v1/projects/1/users']);
 
       await state.projectShares(1);
-      expect(state.sharesOf(1).users.map((s) => s.userId), [
-        7,
-        11,
+      expect(state.sharesOf(1).users.map((s) => s.displayName), [
+        'Joe',
+        'Added',
       ], reason: 'the new share is in the state after the reload');
     });
 
@@ -215,11 +224,11 @@ void main() {
       await state.projectShares(1);
       server.requests.clear();
 
-      expect(await state.removeShare(1, userId: 7), isNull);
+      expect(await state.removeShare(1, username: 'joe'), isNull);
       await state.projectShares(1);
       expect(state.sharesOf(1).users, isEmpty);
       expect(server.requests, [
-        'DELETE /api/v1/projects/1/users/7',
+        'DELETE /api/v1/projects/1/users/joe',
         'GET /api/v1/projects/1/users',
         'GET /api/v1/projects/1/teams',
         'GET /api/v1/projects/1/shares',

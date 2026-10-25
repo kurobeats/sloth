@@ -545,7 +545,7 @@ class VikunjaApi {
     String? description,
   }) async {
     final res = await _send(
-      'PUT',
+      'POST',
       '/labels/${label.id}',
       body: {
         'id': label.id,
@@ -859,22 +859,30 @@ class VikunjaApi {
   Future<void> removeProjectTeam(int projectId, int teamId) =>
       _send('DELETE', '/projects/$projectId/teams/$teamId');
 
-  Future<void> addProjectUser(int projectId, int userId, int permission) =>
-      _send(
-        'PUT',
-        '/projects/$projectId/users',
-        body: {'user_id': userId, 'permission': permission},
-      );
+  /// A user share is addressed by username: Vikunja answers a numeric id with
+  /// 404 "The user does not exist.", on the create body as well as the path.
+  Future<void> addProjectUser(
+    int projectId,
+    String username,
+    int permission,
+  ) => _send(
+    'PUT',
+    '/projects/$projectId/users',
+    body: {'username': username, 'permission': permission},
+  );
 
-  Future<void> updateProjectUser(int projectId, int userId, int permission) =>
-      _send(
-        'POST',
-        '/projects/$projectId/users/$userId',
-        body: {'user_id': userId, 'permission': permission},
-      );
+  Future<void> updateProjectUser(
+    int projectId,
+    String username,
+    int permission,
+  ) => _send(
+    'POST',
+    '/projects/$projectId/users/$username',
+    body: {'username': username, 'permission': permission},
+  );
 
-  Future<void> removeProjectUser(int projectId, int userId) =>
-      _send('DELETE', '/projects/$projectId/users/$userId');
+  Future<void> removeProjectUser(int projectId, String username) =>
+      _send('DELETE', '/projects/$projectId/users/$username');
 
   Future<List<VikunjaLinkShare>> linkShares(int projectId) async {
     final res = await _send('GET', '/projects/$projectId/shares');

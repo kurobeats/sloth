@@ -76,7 +76,8 @@ class FakeState extends AppState {
   Future<String?> unassign(VikunjaTask task, VikunjaUser user) => removed.future;
 
   @override
-  Future<String?> unshareUser(int projectId, int userId) => removed.future;
+  Future<String?> unshareUser(int projectId, String username) =>
+      removed.future;
 
   @override
   Future<String?> loadNotifications() async => null;

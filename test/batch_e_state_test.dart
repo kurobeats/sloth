@@ -475,9 +475,50 @@ void main() {
       expect(state.projectTasksForTest(1)!.single.title, 'Changed');
     });
   });
+
+  group('offline restore', () {
+    test('keeps the cached workspace readable with no network', () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final storage = RecordingStorage();
+      final online = CacheState(storage: storage)
+        ..source = CountingApi([taskJson(1, title: 'cached task')]);
+      final client = online.source!.api;
+      online.clientFactory = (String base, {bool allowSelfSigned = false}) =>
+          client;
+      await online.signIn(server: _server, username: 'me', password: 'pw');
+      expect(online.isSignedIn, isTrue, reason: 'the fixture signs in');
+
+      final offline = CacheState(storage: storage)
+        ..clientFactory = (String base, {bool allowSelfSigned = false}) =>
+            VikunjaApi(
+              baseUrl: base,
+              client: MockClient(
+                (request) async => throw http.ClientException(
+                  'Connection refused',
+                  request.url,
+                ),
+              ),
+            );
+      await offline.restore();
+
+      expect(offline.offline, isTrue, reason: 'the network is down');
+      expect(
+        offline.isSignedIn,
+        isTrue,
+        reason: 'the snapshot is the session while offline',
+      );
+      expect(
+        offline.allTasksForWidget.map((t) => t.title),
+        contains('cached task'),
+        reason: 'the cached list is what the user sees',
+      );
+    });
+  });
 }
 
 /// An [AppState] that keeps the fake server around for the next refresh.
 class CacheState extends AppState {
+  CacheState({super.storage});
+
   CountingApi? source;
 }

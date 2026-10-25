@@ -342,17 +342,15 @@ class AppState extends ChangeNotifier {
             error = e.message;
             _dropClient(client);
           } else {
-            // Keep the cached view, read-only.
-            offline = true;
-            error = null;
+            // Keep the cached view, read-only, and let the user read it.
+            _adoptOffline(client);
           }
         } catch (e) {
           if (!hadCache) {
             error = 'Cannot reach $base. Check the server or your connection.';
             _dropClient(client);
           } else {
-            offline = true;
-            error = null;
+            _adoptOffline(client);
           }
         }
       }
@@ -389,6 +387,22 @@ class AppState extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// Adopts a client whose first request failed. [_connect] assigns [api] only
+  /// after that request, so an unreachable server would otherwise leave the app
+  /// with a cached snapshot and no session, which renders the login form and
+  /// hides the very data the snapshot was kept for. The client stays unusable
+  /// for writes: [offline] gates every mutation.
+  void _adoptOffline(VikunjaApi client) {
+    if (!identical(api, client)) api?.close();
+    api = client;
+    baseUrl = client.baseUrl;
+    lastServer = client.baseUrl;
+    _cache = OfflineCache(key: 'cache:${client.baseUrl}', storage: _storage);
+    allowSelfSigned = client.allowSelfSigned;
+    offline = true;
+    error = null;
   }
 
   /// Drops a client whose connect failed. `_connect` assigns [api] only after
@@ -1670,14 +1684,14 @@ class AppState extends ChangeNotifier {
 
   Future<String?> addUserShare(
     int projectId,
-    int userId,
+    String username,
     int permission,
   ) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
     try {
-      await client.addProjectUser(projectId, userId, permission);
+      await client.addProjectUser(projectId, username, permission);
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
@@ -1703,13 +1717,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// Removes a user or a team share, whichever is given.
-  Future<String?> removeShare(int projectId, {int? userId, int? teamId}) async {
+  Future<String?> removeShare(
+    int projectId, {
+    String? username,
+    int? teamId,
+  }) async {
     if (offline) return offlineEditError;
     final client = api;
     if (client == null) return 'Not signed in';
-    if (userId == null && teamId == null) return 'No share to remove.';
+    if (username == null && teamId == null) return 'No share to remove.';
     try {
-      if (userId != null) await client.removeProjectUser(projectId, userId);
+      if (username != null) {
+        await client.removeProjectUser(projectId, username);
+      }
       if (teamId != null) await client.removeProjectTeam(projectId, teamId);
       notifyListeners();
       return null;
@@ -1789,17 +1809,20 @@ class AppState extends ChangeNotifier {
   Future<String?> unshareTeam(int projectId, int teamId) =>
       removeShare(projectId, teamId: teamId);
 
-  Future<String?> shareWithUser(int projectId, int userId, int permission) =>
-      addUserShare(projectId, userId, permission);
+  Future<String?> shareWithUser(
+    int projectId,
+    String username,
+    int permission,
+  ) => addUserShare(projectId, username, permission);
 
   Future<String?> setUserShare(
     int projectId,
-    int userId,
+    String username,
     int permission,
   ) async {
     if (offline) return offlineEditError;
     try {
-      await api?.updateProjectUser(projectId, userId, permission);
+      await api?.updateProjectUser(projectId, username, permission);
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
@@ -1807,8 +1830,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> unshareUser(int projectId, int userId) =>
-      removeShare(projectId, userId: userId);
+  Future<String?> unshareUser(int projectId, String username) =>
+      removeShare(projectId, username: username);
 }
 
 /// Who one project is shared with: user shares, team shares, link shares and
