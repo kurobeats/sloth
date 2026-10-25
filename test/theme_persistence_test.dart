@@ -67,6 +67,18 @@ void main() {
     expect(state.allowSelfSigned, isTrue, reason: 'login prefills the box');
   });
 
+  test('the next launch still prefills the server after a logout', () async {
+    final state = AppState();
+    await state.loadAppearance();
+    await state.signOut();
+
+    final fresh = AppState();
+    await fresh.restore();
+
+    expect(fresh.lastServer, 'https://tasks.example.com');
+    expect(fresh.api, isNull);
+  });
+
   test('changing the theme writes it for the next launch', () async {
     final state = AppState();
     await state.loadAppearance();

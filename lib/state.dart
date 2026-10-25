@@ -164,8 +164,10 @@ class AppState extends ChangeNotifier {
       final token = await _storage.read(key: _kToken);
       final allowBadCert =
           (await _storage.read(key: _kAllowSelfSigned)) == 'true';
+      // The server is remembered even with no token, so the login form can
+      // prefill it after a logout.
+      lastServer = base;
       if (base != null && token != null && token.isNotEmpty) {
-        lastServer = base;
         final client = VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)
           ..token = token;
         baseUrl = base;
