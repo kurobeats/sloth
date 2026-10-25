@@ -1,10 +1,10 @@
 name: Build
 
+# Only a release tag builds. Pushing to main is a plain commit, so CI is not
+# spent on every push; run it by hand with the Run workflow button if needed.
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 jobs:

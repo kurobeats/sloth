@@ -170,8 +170,93 @@ class VikunjaApi {
     if (t == null || t.isEmpty) {
       throw VikunjaException(401, 'Login did not return a token');
     }
+    // The login JWT lives 10 minutes on a default server, and Vikunja has no
+    // refresh endpoint: it hands out API tokens instead, and those have a
+    // lifetime we choose. So the JWT is only used to mint one durable token —
+    // it has to be set first, because minting authenticates with it.
     token = t;
-    return t;
+    token = await _sessionToken() ?? t;
+    return token!;
+  }
+
+  /// Title the app gives its token in the user's Vikunja API token list.
+  static const sessionTokenTitle = 'Sloth';
+
+  /// Long enough to stop the constant sign-outs the 10-minute JWT caused, short
+  /// enough that a forgotten or stolen token dies on its own. The user can
+  /// revoke it from Vikunja at any time.
+  static const sessionTokenLifetime = Duration(days: 90);
+
+  /// Route groups this app actually calls. Anything else (admin, webhooks,
+  /// migration, caldav, feeds, mcp) stays out of the token: a long-lived
+  /// credential should not be wider than the screens that use it.
+  static const sessionTokenGroups = {
+    'tasks',
+    'tasks_comments',
+    'tasks_assignees',
+    'tasks_attachments',
+    'tasks_labels',
+    'tasks_relations',
+    'projects',
+    'projects_shares',
+    'projects_teams',
+    'projects_users',
+    'projects_views',
+    'projects_views_tasks',
+    'labels',
+    'teams',
+    'teams_members',
+    'notifications',
+    // Saved filters arrive as projects, so /filters itself is never called.
+    // 'other' carries /user, /avatar, /users and /routes — the login itself.
+    'other',
+  };
+
+  /// A long-lived, narrow API token to keep the session alive, or null when the
+  /// server will not issue one (older Vikunja, restricted user, no /routes).
+  Future<String?> _sessionToken() async {
+    try {
+      final routes = await _send('GET', '/routes');
+      if (routes is! Map) return null;
+      final permissions = <String, List<String>>{
+        for (final entry in routes.entries)
+          if (entry.value is Map && sessionTokenGroups.contains(entry.key))
+            entry.key as String: [
+              for (final verb in (entry.value as Map).keys) verb as String,
+            ],
+      };
+      if (permissions.isEmpty) return null;
+      await _dropOldSessionTokens();
+      final res = await _send(
+        'PUT',
+        '/tokens',
+        body: {
+          'title': sessionTokenTitle,
+          'permissions': permissions,
+          'expires_at': DateTime.now()
+              .toUtc()
+              .add(sessionTokenLifetime)
+              .toIso8601String(),
+        },
+      );
+      final t = res is Map ? res['token'] as String? : null;
+      return (t == null || t.isEmpty) ? null : t;
+    } catch (_) {
+      // Token creation is an upgrade, not a requirement: the JWT still works.
+      return null;
+    }
+  }
+
+  /// Each login replaces the previous token, so a phone that logs in often does
+  /// not leave a trail of live credentials behind.
+  Future<void> _dropOldSessionTokens() async {
+    final res = await _send('GET', '/tokens');
+    if (res is! List) return;
+    for (final entry in res) {
+      if (entry is! Map || entry['title'] != sessionTokenTitle) continue;
+      final id = entry['id'];
+      if (id is int) await _send('DELETE', '/tokens/$id');
+    }
   }
 
   /// The user's avatar image, or null when they have not uploaded one.
@@ -658,3 +743,4 @@ class VikunjaApi {
 
   void close() => _client.close();
 }
+
