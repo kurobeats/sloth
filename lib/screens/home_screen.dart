@@ -50,7 +50,13 @@ class _HomeScreenState extends State<HomeScreen> {
       final projects = state.writableProjects
           .where((p) => !p.isArchived)
           .toList();
-      if (projects.isEmpty) return;
+      if (projects.isEmpty) {
+        // Nothing to add the task to. Silently dropping the typed title looks
+        // like the app lost it; say what is missing instead.
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Create a list first')));
+        return;
+      }
       if (projects.length > 1) {
         target = await showModalBottomSheet<VikunjaProject>(
           context: context,
@@ -98,8 +104,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _confirmDelete(AppState state, VikunjaTask task) {
-    showDialog<void>(
+  Future<void> _confirmDelete(AppState state, VikunjaTask task) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete this task'),
@@ -108,19 +114,49 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              state.deleteTask(task);
-            },
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    // `deleteTask` reports failures through `state.error`.
+    await state.deleteTask(task);
+    if (!mounted) return;
+    final error = state.error;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  Future<void> _createList(BuildContext context, AppState state) async {
+    final title = await showDialog<String>(
+      context: context,
+      builder: (_) => const _CreateListDialog(),
+    );
+    if (title == null || title.isEmpty) return;
+    if (!context.mounted) return;
+    final accent = Theme.of(context)
+        .extension<TodoThemeExtension>()
+        ?.colors
+        .accent;
+    final error = await state.createProject(
+      title,
+      hexColor: accent == null ? null : TodoColors.toHex(accent),
+    );
+    if (!context.mounted) return;
+    if (error == null) {
+      await state.refresh();
+    } else {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
   }
 
   @override
@@ -132,7 +168,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       key: _scaffoldKey,
-      drawer: _Drawer(iconFor: _iconFor),
+      drawer: _Drawer(
+        iconFor: _iconFor,
+        onCreateProject: () => _createList(context, state),
+      ),
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.menu),
@@ -196,6 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           OfflineBanner(onRetry: state.refresh),
+          if (state.listTruncated) const _TruncationNotice(),
           Expanded(
             child: RefreshIndicator(
               color: c.accent,
@@ -245,16 +285,15 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final rows = <Widget>[];
-    final showProject =
-        state.selection.tag != null ||
-        state.selection.smart == SmartList.allTasks ||
-        state.selection.smart == SmartList.assigned ||
-        state.selection.smart == SmartList.favorites;
+    // Rows are flattened once into lazily-called builders: a task list can hold
+    // hundreds of tasks, and building a TaskTile for each of them up front would
+    // cost tens of thousands of widgets for the dozen rows that fit on screen.
+    final rows = <Widget Function()>[];
+    final showProject = state.selection.showProject;
 
     void addTile(VikunjaTask task) {
       rows.add(
-        TaskTile(
+        () => TaskTile(
           key: ValueKey('task-${task.id}'),
           task: task,
           project: state.projectOf(task),
@@ -274,10 +313,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (open.isEmpty && completed.isEmpty) {
-      rows.add(_EmptyState(list: state.selection, c: c));
+      rows.add(() => _EmptyState(list: state.selection));
     } else if (state.selection.groupsByDay) {
       for (final group in TodoFormat.groupByDay(open, (t) => t.dueDate)) {
-        rows.add(_GroupHeader(label: TodoFormat.groupHeader(group.day)));
+        final label = TodoFormat.groupHeader(group.day);
+        rows.add(() => _GroupHeader(label: label));
         for (final t in group.tasks) {
           addTile(t);
         }
@@ -289,8 +329,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (completed.isNotEmpty) {
+      final completedCount = completed.length;
       rows.add(
-        InkWell(
+        () => InkWell(
           onTap: () => setState(() => _showCompleted = !_showCompleted),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -311,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${completed.length}',
+                  '$completedCount',
                   style: TextStyle(
                     fontSize: TodoText.medium,
                     color: c.secondaryText,
@@ -329,12 +370,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    rows.add(const SizedBox(height: 24));
+    rows.add(() => const SizedBox(height: 24));
 
-    return ListView(
+    return ListView.builder(
       controller: _scroll,
       physics: const AlwaysScrollableScrollPhysics(),
-      children: rows,
+      itemCount: rows.length,
+      itemBuilder: (context, index) => rows[index](),
     );
   }
 
@@ -367,14 +409,31 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    if (!mounted) return;
     switch (action) {
       case 'star':
         await state.toggleImportant(task);
       case 'done':
         await state.toggleDone(task);
       case 'delete':
-        _confirmDelete(state, task);
+        await _confirmDelete(state, task);
     }
+  }
+}
+
+class _TruncationNotice extends StatelessWidget {
+  const _TruncationNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Text(
+        AppState.truncationNotice,
+        style: TextStyle(fontSize: TodoText.small, color: c.secondaryText),
+      ),
+    );
   }
 }
 
@@ -405,13 +464,15 @@ class _GroupHeader extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.list, required this.c});
+  const _EmptyState({required this.list});
 
   final ListSelection list;
-  final TodoColors c;
 
   @override
   Widget build(BuildContext context) {
+    // Read here, not from a field: the colours must follow a theme change
+    // without the list having to hand them down.
+    final c = TodoColors.of(context);
     final (icon, title, subtitle) = list.tag != null
         ? (
             Icons.label_outline,
@@ -479,275 +540,459 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _Drawer extends StatelessWidget {
-  const _Drawer({required this.iconFor});
+/// Every count the drawer shows, gathered in one pass over the task list.
+///
+/// The state counts one list at a time; the drawer needs all of them, so it
+/// counts locally rather than scanning the list twice per row.
+class _DrawerCounts {
+  _DrawerCounts(List<VikunjaTask> tasks, {required int? me}) {
+    final today = startOfDay(DateTime.now());
+    final tomorrow = endOfToday(DateTime.now());
+    for (final t in tasks) {
+      if (t.done) continue;
+      projects.update(t.projectId, (n) => n + 1, ifAbsent: () => 1);
+      for (final id in {for (final l in t.labels) l.id}) {
+        labels.update(id, (n) => n + 1, ifAbsent: () => 1);
+      }
+      for (final smart in SmartList.values) {
+        if (_matches(smart, t, today, tomorrow, me)) {
+          this.smart.update(smart, (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+    }
+  }
+
+  final smart = <SmartList, int>{};
+  final projects = <int, int>{};
+  final labels = <int, int>{};
+
+  /// Mirrors `AppState.countFor`, which the drawer cannot call per row.
+  static bool _matches(
+    SmartList smart,
+    VikunjaTask t,
+    DateTime today,
+    DateTime tomorrow,
+    int? me,
+  ) => switch (smart) {
+    SmartList.dueToday => t.isDueBy(tomorrow),
+    SmartList.favorites => t.isFavorite,
+    SmartList.upcoming =>
+      t.dueDate != null &&
+          !DateTime(
+            t.dueDate!.year,
+            t.dueDate!.month,
+            t.dueDate!.day,
+          ).isBefore(today) &&
+          t.dueDate!.isBefore(today.add(const Duration(days: 7))),
+    SmartList.assigned => me != null && t.assignees.any((a) => a.id == me),
+    SmartList.allTasks => true,
+  };
+}
+
+class _Drawer extends StatefulWidget {
+  const _Drawer({required this.iconFor, required this.onCreateProject});
 
   final IconData Function(SmartList) iconFor;
+  final VoidCallback onCreateProject;
+
+  @override
+  State<_Drawer> createState() => _DrawerState();
+}
+
+class _DrawerState extends State<_Drawer> {
+  List<VikunjaTask>? _countedSource;
+  _DrawerCounts? _counts;
+
+  /// Counted once per task list; mutations replace the list, so identity is the
+  /// signal to recount.
+  _DrawerCounts _countsFor(AppState state) {
+    final source = state.allTasksForWidget;
+    if (!identical(source, _countedSource)) {
+      _countedSource = source;
+      _counts = _DrawerCounts(source, me: state.user?.id);
+    }
+    return _counts!;
+  }
+
+  void _close() => Navigator.pop(context);
+
+  void _push(Widget screen) {
+    _close();
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final c = TodoColors.of(context);
-    final user = state.user;
+    final counts = _countsFor(state);
 
     return Drawer(
       child: SafeArea(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 16, 8, 12),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: c.accent,
-                    foregroundImage: state.avatar == null
-                        ? null
-                        : MemoryImage(state.avatar!),
-                    child: Text(
-                      user?.initials ?? '?',
-                      style: TextStyle(color: c.onAccent, fontSize: 14),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          user?.displayName ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: TodoText.big,
-                            fontWeight: FontWeight.w600,
-                            color: c.primaryText,
-                          ),
-                        ),
-                        if (user?.email != null)
-                          Text(
-                            user!.email!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: TodoText.s,
-                              color: c.secondaryText,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    color: c.secondaryText,
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SearchScreen()),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
+            _DrawerHeader(state: state),
             _DrawerRow(
               icon: Icons.notifications_none,
               label: 'Notifications',
               trailing: state.unreadNotifications,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const NotificationsScreen(),
-                  ),
-                );
+              onTap: () => _push(const NotificationsScreen()),
+            ),
+            _SmartListRows(
+              iconFor: widget.iconFor,
+              counts: counts.smart,
+              selected: state.selection.smart,
+              onSelected: (smart) {
+                _close();
+                state.select(ListSelection.smart(smart));
               },
             ),
-            for (final smart in SmartList.values)
-              _DrawerRow(
-                icon: iconFor(smart),
-                label: smart.label,
-                trailing: state.countFor(smart),
-                selected: state.selection.smart == smart,
-                onTap: () {
-                  Navigator.pop(context);
-                  state.select(ListSelection.smart(smart));
-                },
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Projects',
-                      style: TextStyle(
-                        fontSize: TodoText.small,
-                        fontWeight: FontWeight.w600,
-                        color: c.secondaryText,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add, size: 20),
-                    color: c.secondaryText,
-                    tooltip: 'New project',
-                    onPressed: () => _createList(context, state),
-                  ),
-                ],
-              ),
+            _ProjectRows(
+              projects: state.sortedProjects,
+              counts: counts.projects,
+              selectedId: state.selection.project?.id,
+              onCreate: widget.onCreateProject,
+              onSelected: (project) {
+                _close();
+                state.select(ListSelection.project(project));
+              },
+              onSettings: (project) =>
+                  _push(ProjectSettingsScreen(project: project)),
             ),
-            for (final project in state.sortedProjects)
-              _DrawerRow(
-                icon: Icons.list_alt,
-                iconColor: TodoColors.serverColor(
-                  project.hexColor,
-                  c,
-                  min: 3.5,
-                ),
-                label: project.title,
-                trailing: state.countForProject(project),
-                selected: state.selection.project?.id == project.id,
-                onTap: () {
-                  Navigator.pop(context);
-                  state.select(ListSelection.project(project));
-                },
-                onLongPress: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProjectSettingsScreen(project: project),
-                    ),
-                  );
-                },
-              ),
-            if (state.savedFilters.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-                child: Text(
-                  'Filters',
-                  style: TextStyle(
-                    fontSize: TodoText.small,
-                    fontWeight: FontWeight.w600,
-                    color: c.secondaryText,
-                  ),
-                ),
-              ),
-            for (final filter in state.savedFilters)
-              _DrawerRow(
-                icon: Icons.filter_alt_outlined,
-                label: filter.title,
-                selected: state.selection.project?.id == filter.id,
-                onTap: () {
-                  Navigator.pop(context);
-                  state.select(ListSelection.project(filter));
-                },
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Labels',
-                      style: TextStyle(
-                        fontSize: TodoText.small,
-                        fontWeight: FontWeight.w600,
-                        color: c.secondaryText,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add, size: 20),
-                    color: c.secondaryText,
-                    tooltip: 'New label',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const LabelsScreen()),
-                      );
-                    },
-                  ),
-                ],
-              ),
+            _FilterRows(
+              filters: state.savedFilters,
+              selectedId: state.selection.project?.id,
+              onSelected: (filter) {
+                _close();
+                state.select(ListSelection.project(filter));
+              },
             ),
-            for (final label in state.labels)
-              _DrawerRow(
-                icon: Icons.label_outline,
-                iconColor: TodoColors.serverColor(label.hexColor, c, min: 3.5),
-                label: label.title,
-                trailing: state.countForTag(label),
-                selected: state.selection.tag?.id == label.id,
-                onTap: () {
-                  Navigator.pop(context);
-                  state.select(ListSelection.tag(label));
-                },
-              ),
+            _LabelRows(
+              labels: state.labels,
+              counts: counts.labels,
+              selectedId: state.selection.tag?.id,
+              onCreate: () => _push(const LabelsScreen()),
+              onSelected: (label) {
+                _close();
+                state.select(ListSelection.tag(label));
+              },
+            ),
             const SizedBox(height: 12),
             Divider(height: 1, color: c.divider),
             _DrawerRow(
               icon: Icons.groups_outlined,
               label: 'Teams',
               trailing: state.teams.length,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const TeamsScreen()));
-              },
+              onTap: () => _push(const TeamsScreen()),
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Future<void> _createList(BuildContext context, AppState state) async {
-    final controller = TextEditingController();
-    final title = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New project'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: "The project's title goes here…",
+class _DrawerHeader extends StatelessWidget {
+  const _DrawerHeader({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    final user = state.user;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 16, 8, 12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: c.accent,
+            foregroundImage: state.avatar == null
+                ? null
+                : MemoryImage(state.avatar!),
+            child: Text(
+              user?.initials ?? '?',
+              style: TextStyle(color: c.onAccent, fontSize: 14),
+            ),
           ),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user?.displayName ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: TodoText.big,
+                    fontWeight: FontWeight.w600,
+                    color: c.primaryText,
+                  ),
+                ),
+                if (user?.email != null)
+                  Text(
+                    user!.email!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: TodoText.s,
+                      color: c.secondaryText,
+                    ),
+                  ),
+              ],
+            ),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Create project'),
+          IconButton(
+            icon: const Icon(Icons.search),
+            color: c.secondaryText,
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+            },
           ),
         ],
       ),
     );
-    if (title == null || title.trim().isEmpty) return;
-    if (!context.mounted) return;
-    try {
-      final accent = Theme.of(context)
-          .extension<TodoThemeExtension>()
-          ?.colors
-          .accent;
-      final hex = accent == null
-          ? null
-          : '#${(accent.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
-      await state.api!.createProject(title.trim(), hexColor: hex);
-      await state.refresh();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not create project: $e')));
-      }
-    }
+  }
+}
+
+class _SmartListRows extends StatelessWidget {
+  const _SmartListRows({
+    required this.iconFor,
+    required this.counts,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final IconData Function(SmartList) iconFor;
+  final Map<SmartList, int> counts;
+  final SmartList? selected;
+  final ValueChanged<SmartList> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (final smart in SmartList.values)
+          _DrawerRow(
+            icon: iconFor(smart),
+            label: smart.label,
+            trailing: counts[smart] ?? 0,
+            selected: selected == smart,
+            onTap: () => onSelected(smart),
+          ),
+      ],
+    );
+  }
+}
+
+class _ProjectRows extends StatelessWidget {
+  const _ProjectRows({
+    required this.projects,
+    required this.counts,
+    required this.selectedId,
+    required this.onCreate,
+    required this.onSelected,
+    required this.onSettings,
+  });
+
+  final List<VikunjaProject> projects;
+  final Map<int, int> counts;
+  final int? selectedId;
+  final VoidCallback onCreate;
+  final ValueChanged<VikunjaProject> onSelected;
+  final ValueChanged<VikunjaProject> onSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      children: [
+        _DrawerSectionHeader(
+          label: 'Projects',
+          tooltip: 'New project',
+          onAction: onCreate,
+        ),
+        for (final project in projects)
+          _DrawerRow(
+            icon: Icons.list_alt,
+            iconColor: TodoColors.serverColor(project.hexColor, c, min: 3.5),
+            label: project.title,
+            trailing: counts[project.id] ?? 0,
+            selected: selectedId == project.id,
+            onTap: () => onSelected(project),
+            onLongPress: () => onSettings(project),
+          ),
+      ],
+    );
+  }
+}
+
+class _FilterRows extends StatelessWidget {
+  const _FilterRows({
+    required this.filters,
+    required this.selectedId,
+    required this.onSelected,
+  });
+
+  final List<VikunjaProject> filters;
+  final int? selectedId;
+  final ValueChanged<VikunjaProject> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (filters.isEmpty) return const SizedBox.shrink();
+    final c = TodoColors.of(context);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+          child: Text(
+            'Filters',
+            style: TextStyle(
+              fontSize: TodoText.small,
+              fontWeight: FontWeight.w600,
+              color: c.secondaryText,
+            ),
+          ),
+        ),
+        for (final filter in filters)
+          _DrawerRow(
+            icon: Icons.filter_alt_outlined,
+            label: filter.title,
+            selected: selectedId == filter.id,
+            onTap: () => onSelected(filter),
+          ),
+      ],
+    );
+  }
+}
+
+class _LabelRows extends StatelessWidget {
+  const _LabelRows({
+    required this.labels,
+    required this.counts,
+    required this.selectedId,
+    required this.onCreate,
+    required this.onSelected,
+  });
+
+  final List<VikunjaLabel> labels;
+  final Map<int, int> counts;
+  final int? selectedId;
+  final VoidCallback onCreate;
+  final ValueChanged<VikunjaLabel> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      children: [
+        _DrawerSectionHeader(
+          label: 'Labels',
+          tooltip: 'New label',
+          onAction: onCreate,
+        ),
+        for (final label in labels)
+          _DrawerRow(
+            icon: Icons.label_outline,
+            iconColor: TodoColors.serverColor(label.hexColor, c, min: 3.5),
+            label: label.title,
+            trailing: counts[label.id] ?? 0,
+            selected: selectedId == label.id,
+            onTap: () => onSelected(label),
+          ),
+      ],
+    );
+  }
+}
+
+/// The "Projects" / "Labels" header: a label and an add button.
+class _DrawerSectionHeader extends StatelessWidget {
+  const _DrawerSectionHeader({
+    required this.label,
+    required this.tooltip,
+    required this.onAction,
+  });
+
+  final String label;
+  final String tooltip;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: TodoText.small,
+                fontWeight: FontWeight.w600,
+                color: c.secondaryText,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add, size: 20),
+            color: c.secondaryText,
+            tooltip: tooltip,
+            onPressed: onAction,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// New project form. Owns its controller so it dies with the dialog.
+class _CreateListDialog extends StatefulWidget {
+  const _CreateListDialog();
+
+  @override
+  State<_CreateListDialog> createState() => _CreateListDialogState();
+}
+
+class _CreateListDialogState extends State<_CreateListDialog> {
+  final _title = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New project'),
+      content: TextField(
+        controller: _title,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: "The project's title goes here…",
+        ),
+        onSubmitted: (v) => Navigator.pop(context, v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _title.text.trim()),
+          child: const Text('Create project'),
+        ),
+      ],
+    );
   }
 }
 

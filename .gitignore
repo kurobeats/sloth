@@ -43,3 +43,14 @@ Thumbs.db
 
 # Local dev env (this machine only)
 .pi-env.sh
+
+# Agent definitions and local tooling state (per-machine)
+.pi/
+docs/ISSUES.md
+
+# Test and coverage output
+coverage/
+*.lcov
+
+# Local logs and captures
+*.log

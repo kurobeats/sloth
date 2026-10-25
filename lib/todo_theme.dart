@@ -57,31 +57,55 @@ class TodoColors {
     return (hi + 0.05) / (lo + 0.05);
   }
 
+  /// Memo for [legible]: it walks up to 40 lerps per call and runs once per
+  /// label per tile on every rebuild. Both functions are pure, so the key is
+  /// the whole input; schemes x server colours x two minimums is a small set.
+  static final Map<String, Color> _legibleCache = {};
+
   /// Nudges [color] towards black (on light backgrounds) or white (on dark
   /// ones) until it clears [min] contrast against [background]. Gogh palettes
   /// are tuned for terminal text, not for 15px icons, so a few hues need this.
   static Color legible(Color color, Color background, double min) {
-    if (contrast(color, background) >= min) return color;
-    final towards = background.computeLuminance() > 0.5
-        ? const Color(0xFF000000)
-        : const Color(0xFFFFFFFF);
+    final key = '${color.toARGB32()}|${background.toARGB32()}|$min';
+    final cached = _legibleCache[key];
+    if (cached != null) return cached;
     var result = color;
-    for (var i = 0; i < 40 && contrast(result, background) < min; i++) {
-      result = Color.lerp(result, towards, 0.05)!;
+    if (contrast(color, background) < min) {
+      final towards = background.computeLuminance() > 0.5
+          ? const Color(0xFF000000)
+          : const Color(0xFFFFFFFF);
+      for (var i = 0; i < 40 && contrast(result, background) < min; i++) {
+        result = Color.lerp(result, towards, 0.05)!;
+      }
     }
-    return result;
+    return _legibleCache[key] = result;
   }
 
+  /// The 6-digit lowercase hex Vikunja stores for a project or label colour.
+  /// Alpha is dropped: the server only keeps RGB.
+  static String toHex(Color color) =>
+      '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+
+  static final Map<String, Color> _serverColorCache = {};
+
   /// A colour supplied by the server (project or label), made visible against
-  /// the current background. Falls back to the accent when unset.
+  /// the current background. Falls back to the accent when unset. Memoised: the
+  /// list rebuilds ask for the same handful of label colours hundreds of times.
   static Color serverColor(String? hex, TodoColors scheme, {double min = 3.0}) {
     if (hex == null || hex.isEmpty) return scheme.accent;
-    final value = int.tryParse(hex.replaceAll('#', ''), radix: 16);
-    if (value == null) return scheme.accent;
-    final raw = Color(
-      hex.replaceAll('#', '').length == 8 ? value : 0xFF000000 | value,
-    );
-    return legible(raw, scheme.primaryBackground, min);
+    final key = '$hex|${scheme.primaryBackground.toARGB32()}|$min';
+    final cached = _serverColorCache[key];
+    if (cached != null) return cached;
+    final digits = hex.replaceAll('#', '');
+    final value = int.tryParse(digits, radix: 16);
+    final result = value == null
+        ? scheme.accent
+        : legible(
+            Color(digits.length == 8 ? value : 0xFF000000 | value),
+            scheme.primaryBackground,
+            min,
+          );
+    return _serverColorCache[key] = result;
   }
 
   /// Project colour choices for the colour picker: the scheme's accent and
@@ -291,7 +315,16 @@ class TodoText {
   static const tilePadding = 8.0;
 }
 
-ThemeData buildTodoTheme(TodoColors c) {
+/// One [ThemeData] per scheme id. `buildTodoTheme` runs on every app-shell
+/// rebuild and each call generates a whole M3 palette from the seed colour, so
+/// the result is memoised. Safe to key on the id: [TodoColors] instances are
+/// immutable and one id means one palette for the lifetime of the process.
+final _themeCache = <String, ThemeData>{};
+
+ThemeData buildTodoTheme(TodoColors c) =>
+    _themeCache[c.id] ??= _buildTodoTheme(c);
+
+ThemeData _buildTodoTheme(TodoColors c) {
   // M3 surfaces are split into containers; map every one of them onto the
   // scheme's two backgrounds so sheets, dialogs and menus stop falling back to
   // the generated near-white default.

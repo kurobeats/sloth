@@ -25,6 +25,22 @@ String _hex(dynamic v) {
   return s.startsWith('#') ? s : '#$s';
 }
 
+/// Element-wise list equality, so models with list fields can implement `==`
+/// without pulling in a package.
+bool _listEq<T>(List<T> a, List<T> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// Midnight of [t]'s day.
+DateTime startOfDay(DateTime t) => DateTime(t.year, t.month, t.day);
+
+/// Exclusive upper bound of "today" for [now]: tomorrow's midnight.
+DateTime endOfToday(DateTime now) => startOfDay(now).add(const Duration(days: 1));
+
 class VikunjaUserSettings {
   const VikunjaUserSettings({
     this.name = '',
@@ -92,6 +108,34 @@ class VikunjaUserSettings {
     'overdue_tasks_reminders_time': overdueRemindersTime,
   };
 
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaUserSettings &&
+      other.name == name &&
+      other.language == language &&
+      other.timezone == timezone &&
+      other.weekStart == weekStart &&
+      other.defaultProjectId == defaultProjectId &&
+      other.discoverableByName == discoverableByName &&
+      other.discoverableByEmail == discoverableByEmail &&
+      other.emailRemindersEnabled == emailRemindersEnabled &&
+      other.overdueRemindersEnabled == overdueRemindersEnabled &&
+      other.overdueRemindersTime == overdueRemindersTime;
+
+  @override
+  int get hashCode => Object.hashAll([
+    name,
+    language,
+    timezone,
+    weekStart,
+    defaultProjectId,
+    discoverableByName,
+    discoverableByEmail,
+    emailRemindersEnabled,
+    overdueRemindersEnabled,
+    overdueRemindersTime,
+  ]);
+
   VikunjaUserSettings copyWith({
     String? name,
     String? language,
@@ -137,10 +181,14 @@ class VikunjaUser {
 
   String get displayName => name ?? username;
 
+  /// Splits a display name into words for [initials]. `static final` so the
+  /// pattern is compiled once, not once per avatar per rebuild.
+  static final RegExp initialsSeparator = RegExp(r'\s+');
+
   String get initials {
     final source = displayName.trim();
     if (source.isEmpty) return '?';
-    final parts = source.split(RegExp(r'\s+'));
+    final parts = source.split(initialsSeparator);
     if (parts.length == 1) return parts.first.characters(1);
     return parts.first.characters(1) + parts.last.characters(1);
   }
@@ -164,6 +212,19 @@ class VikunjaUser {
         ? VikunjaUserSettings.fromJson(j['settings'] as Map<String, dynamic>)
         : null,
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaUser &&
+      other.id == id &&
+      other.username == username &&
+      other.name == name &&
+      other.email == email &&
+      other.isAdmin == isAdmin &&
+      other.settings == settings;
+
+  @override
+  int get hashCode => Object.hash(id, username, name, email, isAdmin, settings);
 }
 
 extension on String {
@@ -193,6 +254,16 @@ class VikunjaLabel {
     'title': title,
     'hex_color': hexColor,
   };
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaLabel &&
+      other.id == id &&
+      other.title == title &&
+      other.hexColor == hexColor;
+
+  @override
+  int get hashCode => Object.hash(id, title, hexColor);
 }
 
 class VikunjaReminder {
@@ -206,6 +277,13 @@ class VikunjaReminder {
   Map<String, dynamic> toJson() => {
     'reminder': reminder.toUtc().toIso8601String(),
   };
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaReminder && other.reminder == reminder;
+
+  @override
+  int get hashCode => reminder.hashCode;
 }
 
 class VikunjaView {
@@ -227,6 +305,16 @@ class VikunjaView {
     title: j['title'] as String? ?? '',
     viewKind: j['view_kind'] as String? ?? 'list',
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaView &&
+      other.id == id &&
+      other.title == title &&
+      other.viewKind == viewKind;
+
+  @override
+  int get hashCode => Object.hash(id, title, viewKind);
 }
 
 /// A kanban column. Vikunja returns these with their tasks embedded from
@@ -249,6 +337,16 @@ class VikunjaBucket {
         .map((e) => VikunjaTask.fromJson(e as Map<String, dynamic>))
         .toList(),
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaBucket &&
+      other.id == id &&
+      other.title == title &&
+      _listEq(other.tasks, tasks);
+
+  @override
+  int get hashCode => Object.hash(id, title, Object.hashAll(tasks));
 }
 
 class VikunjaProject {
@@ -315,9 +413,54 @@ class VikunjaProject {
         .map((e) => VikunjaView.fromJson(e as Map<String, dynamic>))
         .toList(),
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaProject &&
+      other.id == id &&
+      other.title == title &&
+      other.description == description &&
+      other.hexColor == hexColor &&
+      other.isFavorite == isFavorite &&
+      other.isArchived == isArchived &&
+      other.position == position &&
+      _listEq(other.views, views);
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    title,
+    description,
+    hexColor,
+    isFavorite,
+    isArchived,
+    position,
+    Object.hashAll(views),
+  );
+
+  VikunjaProject copyWith({
+    String? title,
+    String? description,
+    String? hexColor,
+    bool? isFavorite,
+    bool? isArchived,
+    List<VikunjaView>? views,
+    double? position,
+  }) => VikunjaProject(
+    id: id,
+    title: title ?? this.title,
+    description: description ?? this.description,
+    hexColor: hexColor ?? this.hexColor,
+    isFavorite: isFavorite ?? this.isFavorite,
+    isArchived: isArchived ?? this.isArchived,
+    views: views ?? this.views,
+    position: position ?? this.position,
+  );
 }
 
 class VikunjaTask {
+  // Fields stay mutable on purpose: `AppState.mutate` hands a copy to a
+  // `void Function(VikunjaTask)` callback that every screen mutates in place.
   VikunjaTask({
     required this.id,
     required this.projectId,
@@ -372,15 +515,25 @@ class VikunjaTask {
 
   List<VikunjaRelation> get relations => parseRelations(relatedTasks);
 
-  bool get isOverdue =>
-      !done && dueDate != null && dueDate!.isBefore(DateTime.now());
+  bool get isOverdue => isOverdueAt(DateTime.now());
 
-  bool get isDueToday {
-    if (dueDate == null) return false;
-    final n = DateTime.now();
-    return dueDate!.year == n.year &&
-        dueDate!.month == n.month &&
-        dueDate!.day == n.day;
+  /// [isOverdue] against an explicit clock, so a caller (or a test) is not
+  /// tied to the wall clock.
+  bool isOverdueAt(DateTime now) =>
+      !done && dueDate != null && dueDate!.isBefore(now);
+
+  /// True when the deadline falls before [cutoff]. Done state is the caller's
+  /// business: the completed list needs the same date predicate.
+  bool isDueBy(DateTime cutoff) => dueDate != null && dueDate!.isBefore(cutoff);
+
+  bool get isDueToday => isDueTodayAt(DateTime.now());
+
+  /// [isDueToday] against an explicit clock. Day comparison only, so it stays
+  /// correct across DST changes.
+  bool isDueTodayAt(DateTime now) {
+    final due = dueDate;
+    if (due == null) return false;
+    return due.year == now.year && due.month == now.month && due.day == now.day;
   }
 
   String get shortIdentifier => identifier ?? '';
@@ -451,7 +604,112 @@ class VikunjaTask {
         .toList(),
     'reminders': reminders.map((r) => r.toJson()).toList(),
   };
+
+  /// A detached copy. Null means "keep": the callers that need a real null
+  /// (clearing a due date) go through `mutate`, whose callback assigns.
+  VikunjaTask copyWith({
+    String? title,
+    String? description,
+    bool? done,
+    DateTime? doneAt,
+    DateTime? dueDate,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? priority,
+    bool? isFavorite,
+    double? percentDone,
+    List<VikunjaLabel>? labels,
+    List<VikunjaUser>? assignees,
+    List<VikunjaReminder>? reminders,
+    int? repeatAfter,
+    int? repeatMode,
+  }) => VikunjaTask(
+    id: id,
+    projectId: projectId,
+    title: title ?? this.title,
+    description: description ?? this.description,
+    done: done ?? this.done,
+    doneAt: doneAt ?? this.doneAt,
+    dueDate: dueDate ?? this.dueDate,
+    startDate: startDate ?? this.startDate,
+    endDate: endDate ?? this.endDate,
+    priority: priority ?? this.priority,
+    isFavorite: isFavorite ?? this.isFavorite,
+    percentDone: percentDone ?? this.percentDone,
+    labels: labels ?? this.labels,
+    assignees: assignees ?? this.assignees,
+    reminders: reminders ?? this.reminders,
+    repeatAfter: repeatAfter ?? this.repeatAfter,
+    repeatMode: repeatMode ?? this.repeatMode,
+    hexColor: hexColor,
+    identifier: identifier,
+    created: created,
+    updated: updated,
+    position: position,
+    commentCount: commentCount,
+    relatedTasks: relatedTasks,
+  );
+
+  /// Value equality over the fields the app reads. `relatedTasks` is the raw
+  /// server payload of a single-task fetch, so it is left out: two tasks that
+  /// differ only in relations still compare equal.
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaTask &&
+      other.id == id &&
+      other.projectId == projectId &&
+      other.title == title &&
+      other.description == description &&
+      other.done == done &&
+      other.doneAt == doneAt &&
+      other.dueDate == dueDate &&
+      other.startDate == startDate &&
+      other.endDate == endDate &&
+      other.priority == priority &&
+      other.isFavorite == isFavorite &&
+      other.percentDone == percentDone &&
+      other.repeatAfter == repeatAfter &&
+      other.repeatMode == repeatMode &&
+      other.hexColor == hexColor &&
+      other.identifier == identifier &&
+      other.created == created &&
+      other.updated == updated &&
+      other.position == position &&
+      other.commentCount == commentCount &&
+      _listEq(other.labels, labels) &&
+      _listEq(other.assignees, assignees) &&
+      _listEq(other.reminders, reminders);
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    projectId,
+    title,
+    description,
+    done,
+    doneAt,
+    dueDate,
+    startDate,
+    endDate,
+    priority,
+    isFavorite,
+    percentDone,
+    repeatAfter,
+    repeatMode,
+    hexColor,
+    identifier,
+    created,
+    updated,
+    position,
+    commentCount,
+  ]);
 }
+
+/// Open tasks due today or earlier, earliest deadline first. The single
+/// definition the Due Today smart list and the home screen widget share.
+List<VikunjaTask> dueBefore(Iterable<VikunjaTask> tasks, DateTime cutoff) =>
+    tasks.where((t) => !t.done && t.isDueBy(cutoff)).toList()
+      ..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
 
 class VikunjaComment {
   const VikunjaComment({
@@ -460,6 +718,7 @@ class VikunjaComment {
     required this.author,
     this.created,
   });
+
 
   final int id;
   final String comment;
@@ -474,6 +733,17 @@ class VikunjaComment {
         : null,
     created: _date(j['created']),
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaComment &&
+      other.id == id &&
+      other.comment == comment &&
+      other.author == author &&
+      other.created == created;
+
+  @override
+  int get hashCode => Object.hash(id, comment, author, created);
 }
 
 /// Vikunja permissions: 0 read, 1 write, 2 admin.
@@ -503,7 +773,7 @@ class VikunjaTeamMember {
   String get initials {
     final source = displayName.trim();
     if (source.isEmpty) return '?';
-    final parts = source.split(RegExp(r'\s+'));
+    final parts = source.split(VikunjaUser.initialsSeparator);
     if (parts.length == 1) {
       return source.substring(0, 1).toUpperCase();
     }
@@ -519,6 +789,18 @@ class VikunjaTeamMember {
         email: _str(j['email']),
         admin: j['admin'] as bool? ?? false,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaTeamMember &&
+      other.id == id &&
+      other.username == username &&
+      other.name == name &&
+      other.email == email &&
+      other.admin == admin;
+
+  @override
+  int get hashCode => Object.hash(id, username, name, email, admin);
 }
 
 class VikunjaTeam {
@@ -563,6 +845,19 @@ class VikunjaTeam {
         .map(VikunjaTeamMember.fromJson)
         .toList(),
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaTeam &&
+      other.id == id &&
+      other.name == name &&
+      other.description == description &&
+      other.isPublic == isPublic &&
+      _listEq(other.members, members);
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, description, isPublic, Object.hashAll(members));
 }
 
 /// A project shared with a user or a team.
@@ -726,6 +1021,34 @@ class VikunjaNotification {
     );
   }
 
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaNotification &&
+      other.id == id &&
+      other.name == name &&
+      other.created == created &&
+      other.readAt == readAt &&
+      other.doer == doer &&
+      other.taskId == taskId &&
+      other.taskTitle == taskTitle &&
+      other.projectTitle == projectTitle &&
+      other.commentText == commentText &&
+      other.teamTitle == teamTitle;
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    name,
+    created,
+    readAt,
+    doer,
+    taskId,
+    taskTitle,
+    projectTitle,
+    commentText,
+    teamTitle,
+  ]);
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -777,6 +1100,19 @@ class VikunjaAttachment {
       created: _date(j['created']),
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaAttachment &&
+      other.id == id &&
+      other.taskId == taskId &&
+      other.name == name &&
+      other.size == size &&
+      other.mime == mime &&
+      other.created == created;
+
+  @override
+  int get hashCode => Object.hash(id, taskId, name, size, mime, created);
 }
 
 /// Vikunja relation kinds, as used by /tasks/{id}/relations.
@@ -795,6 +1131,17 @@ class VikunjaRelation {
   final int taskId;
   final String title;
   final bool done;
+
+  @override
+  bool operator ==(Object other) =>
+      other is VikunjaRelation &&
+      other.kind == kind &&
+      other.taskId == taskId &&
+      other.title == title &&
+      other.done == done;
+
+  @override
+  int get hashCode => Object.hash(kind, taskId, title, done);
 
   static const subtask = 'subtask';
   static const parentTask = 'parenttask';

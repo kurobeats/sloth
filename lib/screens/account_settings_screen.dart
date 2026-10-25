@@ -83,7 +83,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       minute: parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0,
     );
     final picked = await showTimePicker(context: context, initialTime: initial);
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(
       () => _settings = _settings.copyWith(
         overdueRemindersTime:
@@ -114,147 +114,191 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 48),
-        children: [
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(
-              labelText: 'Display name',
-              border: OutlineInputBorder(),
+      // Edge-to-edge: the form must stop above the gesture bar.
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 48),
+          children: [
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                labelText: 'Display name',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: _languages.any((l) => l.$1 == _settings.language)
-                ? _settings.language
-                : 'en',
-            decoration: const InputDecoration(
-              labelText: 'Language',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _languages.any((l) => l.$1 == _settings.language)
+                  ? _settings.language
+                  : 'en',
+              decoration: const InputDecoration(
+                labelText: 'Language',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (final (code, label) in _languages)
+                  DropdownMenuItem(value: code, child: Text(label)),
+              ],
+              onChanged: (value) => setState(
+                () => _settings = _settings.copyWith(language: value ?? 'en'),
+              ),
             ),
-            items: [
-              for (final (code, label) in _languages)
-                DropdownMenuItem(value: code, child: Text(label)),
-            ],
-            onChanged: (value) => setState(
-              () => _settings = _settings.copyWith(language: value ?? 'en'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _timezone,
+              decoration: const InputDecoration(
+                labelText: 'Timezone',
+                helperText: 'IANA name, e.g. Australia/Sydney or GMT',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _timezone,
-            decoration: const InputDecoration(
-              labelText: 'Timezone',
-              helperText: 'IANA name, e.g. Australia/Sydney or GMT',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<int>(
+              initialValue:
+                  projects.any((p) => p.id == _settings.defaultProjectId)
+                  ? _settings.defaultProjectId
+                  : 0,
+              decoration: const InputDecoration(
+                labelText: 'Default project',
+                helperText: 'New tasks from quick add land here',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem(value: 0, child: Text('None')),
+                for (final project in projects)
+                  DropdownMenuItem(
+                    value: project.id,
+                    child: Text(project.title),
+                  ),
+              ],
+              onChanged: (value) => setState(
+                () => _settings = _settings.copyWith(
+                  defaultProjectId: value ?? 0,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<int>(
-            initialValue:
-                projects.any((p) => p.id == _settings.defaultProjectId)
-                ? _settings.defaultProjectId
-                : 0,
-            decoration: const InputDecoration(
-              labelText: 'Default project',
-              helperText: 'New tasks from quick add land here',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 8),
+            _SettingsSection(
+              divided: true,
+              children: [
+                _SwitchRow(
+                  title: 'Week starts on Monday',
+                  value: _settings.weekStart == 1,
+                  onChanged: (v) => setState(
+                    () => _settings = _settings.copyWith(weekStart: v ? 1 : 0),
+                  ),
+                ),
+              ],
             ),
-            items: [
-              const DropdownMenuItem(value: 0, child: Text('None')),
-              for (final project in projects)
-                DropdownMenuItem(value: project.id, child: Text(project.title)),
-            ],
-            onChanged: (value) => setState(
-              () =>
-                  _settings = _settings.copyWith(defaultProjectId: value ?? 0),
+            _SettingsSection(
+              divided: true,
+              children: [
+                _SwitchRow(
+                  title: 'Discoverable by name',
+                  value: _settings.discoverableByName,
+                  onChanged: (v) => setState(
+                    () => _settings = _settings.copyWith(discoverableByName: v),
+                  ),
+                ),
+                _SwitchRow(
+                  title: 'Discoverable by email',
+                  value: _settings.discoverableByEmail,
+                  onChanged: (v) => setState(
+                    () =>
+                        _settings = _settings.copyWith(discoverableByEmail: v),
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _settings.weekStart == 1,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Week starts on Monday',
-              style: TextStyle(color: c.primaryText),
+            _SettingsSection(
+              children: [
+                _SwitchRow(
+                  title: 'Email reminders',
+                  value: _settings.emailRemindersEnabled,
+                  onChanged: (v) => setState(
+                    () => _settings = _settings.copyWith(
+                      emailRemindersEnabled: v,
+                    ),
+                  ),
+                ),
+                _SwitchRow(
+                  title: 'Overdue task reminders',
+                  value: _settings.overdueRemindersEnabled,
+                  onChanged: (v) => setState(
+                    () => _settings = _settings.copyWith(
+                      overdueRemindersEnabled: v,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Reminder time',
+                    style: TextStyle(color: c.primaryText),
+                  ),
+                  subtitle: Text(
+                    _settings.overdueRemindersTime,
+                    style: TextStyle(fontSize: 12, color: c.secondaryText),
+                  ),
+                  trailing: Icon(Icons.access_time, color: c.secondaryText),
+                  onTap: _pickReminderTime,
+                ),
+              ],
             ),
-            onChanged: (v) => setState(
-              () => _settings = _settings.copyWith(weekStart: v ? 1 : 0),
-            ),
-          ),
-          Divider(color: c.divider, height: 24),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _settings.discoverableByName,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Discoverable by name',
-              style: TextStyle(color: c.primaryText),
-            ),
-            onChanged: (v) => setState(
-              () => _settings = _settings.copyWith(discoverableByName: v),
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _settings.discoverableByEmail,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Discoverable by email',
-              style: TextStyle(color: c.primaryText),
-            ),
-            onChanged: (v) => setState(
-              () => _settings = _settings.copyWith(discoverableByEmail: v),
-            ),
-          ),
-          Divider(color: c.divider, height: 24),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _settings.emailRemindersEnabled,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Email reminders',
-              style: TextStyle(color: c.primaryText),
-            ),
-            onChanged: (v) => setState(
-              () => _settings = _settings.copyWith(emailRemindersEnabled: v),
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _settings.overdueRemindersEnabled,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Overdue task reminders',
-              style: TextStyle(color: c.primaryText),
-            ),
-            onChanged: (v) => setState(
-              () => _settings = _settings.copyWith(overdueRemindersEnabled: v),
-            ),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              'Reminder time',
-              style: TextStyle(color: c.primaryText),
-            ),
-            subtitle: Text(
-              _settings.overdueRemindersTime,
+            const SizedBox(height: 16),
+            Text(
+              'Account: ${state.user?.username ?? ''}'
+              '${state.user?.isAdmin == true ? " · administrator" : ""}',
               style: TextStyle(fontSize: 12, color: c.secondaryText),
             ),
-            trailing: Icon(Icons.access_time, color: c.secondaryText),
-            onTap: _pickReminderTime,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Account: ${state.user?.username ?? ''}'
-            '${state.user?.isAdmin == true ? " · administrator" : ""}',
-            style: TextStyle(fontSize: 12, color: c.secondaryText),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// A group of rows, optionally closed by the divider that separates sections.
+class _SettingsSection extends StatelessWidget {
+  const _SettingsSection({required this.children, this.divided = false});
+
+  final List<Widget> children;
+  final bool divided;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...children,
+        if (divided) Divider(color: c.divider, height: 24),
+      ],
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      value: value,
+      activeThumbColor: c.accent,
+      title: Text(title, style: TextStyle(color: c.primaryText)),
+      onChanged: onChanged,
     );
   }
 }

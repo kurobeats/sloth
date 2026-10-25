@@ -5,6 +5,17 @@ import 'package:intl/intl.dart';
 /// Relative labels ("Today", "Tomorrow", "Yesterday") then a short date
 /// ("Mon 3 Nov"), widening to include the year when it differs.
 class TodoFormat {
+  // One DateFormat per pattern: constructing one parses the skeleton, and every
+  // task row formats at least one date per rebuild.
+  static final DateFormat _weekday = DateFormat('EEEE');
+  static final DateFormat _shortDate = DateFormat('EEE d MMM');
+  static final DateFormat _shortDateYear = DateFormat('EEE d MMM y');
+  static final DateFormat _weekdayShort = DateFormat('EEE');
+  static final DateFormat _dayMonth = DateFormat('d MMM');
+  static final DateFormat _dayMonthYear = DateFormat('d MMM y');
+  static final DateFormat _time = DateFormat.Hm();
+  static final DateFormat _weekdayDayMonth = DateFormat('EEEE d MMM');
+
   static bool sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
@@ -16,9 +27,9 @@ class TodoFormat {
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
     if (diff == -1) return 'Yesterday';
-    if (diff > 1 && diff < 7) return DateFormat('EEEE').format(due);
-    if (due.year == n.year) return DateFormat('EEE d MMM').format(due);
-    return DateFormat('EEE d MMM y').format(due);
+    if (diff > 1 && diff < 7) return _weekday.format(due);
+    if (due.year == n.year) return _shortDate.format(due);
+    return _shortDateYear.format(due);
   }
 
   /// Compact "Today", "Mon", "3 Nov" used inside the task metadata row.
@@ -32,14 +43,14 @@ class TodoFormat {
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
     if (diff == -1) return 'Yesterday';
-    if (diff > -7 && diff < 7) return DateFormat('EEE').format(due);
+    if (diff > -7 && diff < 7) return _weekdayShort.format(due);
     return due.year == n.year
-        ? DateFormat('d MMM').format(due)
-        : DateFormat('d MMM y').format(due);
+        ? _dayMonth.format(due)
+        : _dayMonthYear.format(due);
   }
 
   static String withTime(DateTime due) =>
-      '${metadataLabel(due)}, ${DateFormat.Hm().format(due)}';
+      '${metadataLabel(due)}, ${_time.format(due)}';
 
   /// Repeat labels use Vikunja's wording: "Every Day", "Every Week",
   /// "Every 30 Days", "Monthly".
@@ -67,7 +78,7 @@ class TodoFormat {
   };
 
   static String created(DateTime? d) =>
-      d == null ? '' : 'Created ${DateFormat('d MMM y').format(d)}';
+      d == null ? '' : 'Created ${_dayMonthYear.format(d)}';
 
   /// Groups tasks by day (for the Planned view). Tasks without a due date go
   /// into a trailing "No date" bucket keyed by null.
@@ -105,7 +116,7 @@ class TodoFormat {
     final diff = day.difference(today).inDays;
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Tomorrow';
-    if (diff < 0) return DateFormat('EEEE d MMM').format(day);
-    return DateFormat('EEEE d MMM').format(day);
+    if (diff < 0) return _weekdayDayMonth.format(day);
+    return _weekdayDayMonth.format(day);
   }
 }

@@ -36,6 +36,16 @@ const _team = '''
    "team":{"id":1,"title":"Household"}}}
 ''';
 
+/// The same team notification, already read: a real `read_at` timestamp.
+const _teamRead = '''
+{"id":1,"name":"team.member.added","created":"2026-10-24T13:00:00Z",
+ "read_at":"2026-10-24T13:05:00Z",
+ "notification":{
+   "member":{"id":2,"username":"priya"},
+   "doer":{"id":1,"name":"Joe","username":"joe"},
+   "team":{"id":1,"title":"Household"}}}
+''';
+
 VikunjaNotification parse(String json) =>
     VikunjaNotification.fromJson(jsonDecode(json) as Map<String, dynamic>);
 
@@ -73,7 +83,18 @@ void main() {
   });
 
   group('NotificationTile', () {
-    testWidgets('unread rows are marked and open the task', (tester) async {
+    // The unread dot is always in the tree — a read row paints the same icon
+    // transparent — so `find.byIcon(Icons.circle)` says nothing about read
+    // state. Read the painted colour (and the title weight) instead.
+    Color? dotColour(WidgetTester tester) =>
+        tester.widget<Icon>(find.byIcon(Icons.circle)).color;
+
+    FontWeight? titleWeight(WidgetTester tester, String text) =>
+        tester.widget<Text>(find.textContaining(text)).style?.fontWeight;
+
+    testWidgets('an unread row paints the dot with the accent colour', (
+      tester,
+    ) async {
       var opened = 0;
       await tester.pumpWidget(
         host(
@@ -83,23 +104,40 @@ void main() {
           ),
         ),
       );
+      expect(parse(_comment).isRead, isFalse, reason: 'the fixture is unread');
 
-      expect(find.byIcon(Icons.circle), findsOneWidget);
+      expect(
+        dotColour(tester),
+        TodoColors.gruvboxLight.accent,
+        reason: 'an unread row must mark itself',
+      );
+      expect(titleWeight(tester, 'Fix bike'), FontWeight.w600);
+
       await tester.tap(find.textContaining('Fix bike'));
       expect(opened, 1);
     });
 
-    testWidgets('read rows lose the unread dot and cannot open', (
+    testWidgets('a read row paints the dot transparent and cannot open', (
       tester,
     ) async {
       var opened = 0;
       await tester.pumpWidget(
         host(
-          NotificationTile(notification: parse(_team), onOpen: () => opened++),
+          NotificationTile(
+            notification: parse(_teamRead),
+            onOpen: () => opened++,
+          ),
         ),
       );
+      expect(parse(_teamRead).isRead, isTrue, reason: 'the fixture is read');
 
-      expect(find.byIcon(Icons.circle), findsOneWidget);
+      expect(
+        dotColour(tester),
+        Colors.transparent,
+        reason: 'a read row must not show the unread dot',
+      );
+      expect(titleWeight(tester, 'Household'), FontWeight.normal);
+
       await tester.tap(find.textContaining('Household'));
       expect(opened, 0, reason: 'team notifications have no task to open');
     });

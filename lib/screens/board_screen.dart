@@ -18,8 +18,8 @@ class BoardScreen extends StatefulWidget {
 }
 
 class _BoardScreenState extends State<BoardScreen> {
-  List<VikunjaBucket>? _buckets;
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -27,11 +27,12 @@ class _BoardScreenState extends State<BoardScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  /// The columns live in [AppState]; the screen only asks it to (re)read them.
   Future<void> _load() async {
-    final buckets = await AppScope.of(context).board(widget.project);
+    final error = await AppScope.of(context).loadBoard(widget.project);
     if (!mounted) return;
     setState(() {
-      _buckets = buckets;
+      _error = error;
       _loading = false;
     });
   }
@@ -45,13 +46,12 @@ class _BoardScreenState extends State<BoardScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
     }
-    await _load();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final buckets = _buckets;
+    final buckets = state.bucketsFor(widget.project);
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.project.title),
@@ -63,41 +63,44 @@ class _BoardScreenState extends State<BoardScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          if (state.offline) OfflineBanner(onRetry: state.refresh),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : buckets == null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        state.offline
-                            ? 'The board needs a connection to your server.'
-                            : 'This project has no kanban view.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                : ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    children: [
-                      for (final bucket in buckets)
-                        _Column(
-                          bucket: bucket,
-                          onDrop: (taskId) => _move(taskId, bucket),
-                          onOpen: _open,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            if (state.offline) OfflineBanner(onRetry: state.refresh),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : buckets == null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          state.offline
+                              ? 'The board needs a connection to your server.'
+                              : _error ?? 'This project has no kanban view.',
+                          textAlign: TextAlign.center,
                         ),
-                    ],
-                  ),
-          ),
-        ],
+                      ),
+                    )
+                  : ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      children: [
+                        for (final bucket in buckets)
+                          _Column(
+                            bucket: bucket,
+                            onDrop: (taskId) => _move(taskId, bucket),
+                            onOpen: _open,
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,24 @@ import '../models.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
 
+/// `TodoFormat.metadataLabel` reads the wall clock, so a label is only right
+/// for one day. Memoise per due date and drop the map when the day changes, so
+/// a tile rebuilt many times a day formats its date once.
+/// shortcut: one entry per distinct due date, cleared on the first build of a
+/// new day.
+final Map<DateTime, String> _dueLabels = {};
+DateTime? _dueLabelsDay;
+
+String _dueLabel(DateTime due) {
+  final now = DateTime.now();
+  final day = DateTime(now.year, now.month, now.day);
+  if (day != _dueLabelsDay) {
+    _dueLabelsDay = day;
+    _dueLabels.clear();
+  }
+  return _dueLabels.putIfAbsent(due, () => TodoFormat.metadataLabel(due));
+}
+
 /// A task row: 52dp minimum height, 48dp check and star hit areas,
 /// 16sp title with a 14sp metadata row underneath.
 class TaskTile extends StatelessWidget {
@@ -130,7 +148,7 @@ class TaskTile extends StatelessWidget {
       final dueToday = task.isDueToday;
       items.add(
         Text(
-          TodoFormat.metadataLabel(task.dueDate!),
+          _dueLabel(task.dueDate!),
           style: TextStyle(
             fontSize: TodoText.medium,
             color: overdue

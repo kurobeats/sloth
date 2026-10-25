@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api.dart';
 import '../state.dart';
 import '../todo_theme.dart';
 
@@ -37,15 +38,26 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Prefills the remembered server once, before the first frame is painted.
+  /// `build()` must stay pure: prefilling there overwrote whatever the user had
+  /// already typed the moment anything else rebuilt the screen.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_prefilled) return;
+    final remembered = AppScope.of(context).lastServer;
+    // The remembered server may still be restoring; wait for it.
+    if (remembered == null || remembered.isEmpty) return;
+    _prefilled = true;
+    if (_server.text.isNotEmpty) return; // the user typed first
+    _server.text = remembered;
+    _allowSelfSigned = AppScope.read(context).allowSelfSigned;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final c = TodoColors.of(context);
-    if (!_prefilled && (state.lastServer?.isNotEmpty ?? false)) {
-      _server.text = state.lastServer!;
-      _allowSelfSigned = state.allowSelfSigned;
-      _prefilled = true;
-    }
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -96,8 +108,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         hintText: 'https://vikunja.example.com',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        return VikunjaApi.urlProblem(v);
+                      },
                     ),
                     const SizedBox(height: 16),
                     TextFormField(

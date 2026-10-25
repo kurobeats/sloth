@@ -18,7 +18,16 @@ import 'todo_theme.dart';
 /// when notifications must arrive with the app closed.
 class NotificationsService {
   NotificationsService({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+      _ready = false;
+
+  /// A service that skips the platform handshake: a test host has no
+  /// notification channel to initialise, but the poll and the seen-id
+  /// bookkeeping can still be driven.
+  @visibleForTesting
+  NotificationsService.ready({FlutterLocalNotificationsPlugin? plugin})
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+      _ready = true;
 
   static const _channelId = 'vikunja_notifications';
   static const _channelName = 'Vikunja notifications';
@@ -33,7 +42,13 @@ class NotificationsService {
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ValueNotifier<String?> tappedPayload = ValueNotifier(null);
-  bool _ready = false;
+  bool _ready;
+
+  /// Releases the payload notifier: it lives as long as the app state that
+  /// owns the service, and a listener added after teardown is a bug.
+  void dispose() {
+    tappedPayload.dispose();
+  }
 
   Future<void> init() async {
     if (_ready || kIsWeb || !Platform.isAndroid) return;
@@ -80,7 +95,6 @@ class NotificationsService {
         .whereType<int>()
         .toSet();
     final fresh = freshNotifications(current, seen);
-    if (fresh.isEmpty) return;
     for (final item in fresh) {
       await _plugin.show(
         id: item.id,
@@ -98,13 +112,16 @@ class NotificationsService {
         payload: item.payload,
       );
     }
-    await prefs.setStringList(
-      _seenKey,
-      {
-        ...seen,
-        ...current.map((n) => n.id),
-      }.map((id) => id.toString()).toList(),
-    );
+    // Remember only what the feed still serves. The old union kept every id
+    // ever seen, so the list grew for the life of the account; an id that
+    // dropped out of the feed would only come back as a notification if the
+    // server resurrected it, which is exactly when re-posting is right.
+    final known = {for (final item in current) item.id};
+    if (!setEquals(known, seen)) {
+      await prefs.setStringList(_seenKey, [
+        for (final id in known) id.toString(),
+      ]);
+    }
   }
 
   /// Polls the server and posts anything new; called on launch, on refresh and

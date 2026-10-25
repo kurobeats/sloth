@@ -74,109 +74,168 @@ class LabelsScreen extends StatelessWidget {
     AppState state,
     VikunjaLabel? label,
   ) async {
-    final title = TextEditingController(text: label?.title ?? '');
-    final description = TextEditingController();
-    final scheme = TodoColors.of(context);
-    final swatches = TodoColors.swatches(scheme);
-    var selected = label == null || label.hexColor.isEmpty
-        ? swatches.first
-        : TodoColors.serverColor(label.hexColor, scheme);
-
-    final saved = await showDialog<bool>(
+    final draft = await showDialog<_LabelDraft>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          title: Text(label == null ? 'New label' : 'Edit label'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: title,
-                  autofocus: label == null,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: description,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final swatch in swatches)
-                      GestureDetector(
-                        onTap: () => setLocal(() => selected = swatch),
-                        child: Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: swatch,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: swatch == selected
-                                  ? TodoColors.of(context).primaryText
-                                  : Colors.transparent,
-                              width: 2,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            if (label != null)
-              TextButton(
-                onPressed: () async {
-                  final error = await state.deleteLabel(label);
-                  if (context.mounted) {
-                    Navigator.pop(context, false);
-                    if (error != null) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text(error)));
-                    }
-                  }
-                },
-                child: const Text('Delete'),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(label == null ? 'Create' : 'Save'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _LabelDialog(state: state, label: label),
     );
-
-    if (saved != true) return;
-    final hex =
-        '#${(selected.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+    if (draft == null || label == null && draft.title.isEmpty) return;
     final error = label == null
         ? await state.createLabel(
-            title.text.trim(),
-            hexColor: hex,
-            description: description.text.trim(),
+            draft.title,
+            hexColor: draft.hexColor,
+            description: draft.description,
           )
         : await state.updateLabel(
             label,
-            title: title.text.trim(),
-            hexColor: hex,
-            description: description.text.trim(),
+            title: draft.title,
+            hexColor: draft.hexColor,
+            description: draft.description,
           );
     if (error != null && context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
     }
+  }
+}
+
+/// What the dialog returns: the trimmed fields and the picked colour.
+class _LabelDraft {
+  const _LabelDraft(this.title, this.description, this.hexColor);
+
+  final String title;
+  final String description;
+  final String hexColor;
+}
+
+/// Create or edit a label. Owns its controllers so they die with the dialog.
+class _LabelDialog extends StatefulWidget {
+  const _LabelDialog({required this.state, this.label});
+
+  final AppState state;
+  final VikunjaLabel? label;
+
+  @override
+  State<_LabelDialog> createState() => _LabelDialogState();
+}
+
+class _LabelDialogState extends State<_LabelDialog> {
+  late final TextEditingController _title;
+  late final TextEditingController _description;
+
+  /// Null until a swatch is tapped; the initial colour follows the theme.
+  Color? _picked;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.label?.title ?? '');
+    _description = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final hex = TodoColors.toHex(
+      _picked ?? _initialColour(TodoColors.of(context)),
+    );
+    Navigator.pop(
+      context,
+      _LabelDraft(_title.text.trim(), _description.text.trim(), hex),
+    );
+  }
+
+  Color _initialColour(TodoColors c) {
+    final label = widget.label;
+    if (label == null || label.hexColor.isEmpty) {
+      return TodoColors.swatches(c).first;
+    }
+    return TodoColors.serverColor(label.hexColor, c);
+  }
+
+  Future<void> _delete(AppState state) async {
+    final label = widget.label!;
+    final error = await state.deleteLabel(label);
+    if (!mounted) return;
+    Navigator.pop(context);
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = widget.label;
+    final c = TodoColors.of(context);
+    final swatches = TodoColors.swatches(c);
+    final selected = _picked ?? _initialColour(c);
+
+    return AlertDialog(
+      title: Text(label == null ? 'New label' : 'Edit label'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _title,
+              autofocus: label == null,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _description,
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final swatch in swatches)
+                  GestureDetector(
+                    onTap: () => setState(() => _picked = swatch),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: swatch,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: swatch == selected
+                              ? c.primaryText
+                              : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        if (label != null)
+          TextButton(
+            onPressed: () => _delete(widget.state),
+            child: const Text('Delete'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: _submit,
+          child: Text(label == null ? 'Create' : 'Save'),
+        ),
+      ],
+    );
   }
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../todo_theme.dart';
+import 'unsaved_changes.dart';
 
 /// The "Add a task" bar pinned to the bottom of the list: hollow circle,
 /// hint text and a submit icon.
@@ -29,6 +30,22 @@ class _EntryBarState extends State<EntryBar> {
   final _focus = FocusNode();
   bool _busy = false;
 
+  /// Whether the bar holds a draft; the back guard follows this.
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncDraft);
+  }
+
+  void _syncDraft() {
+    final hasText = _controller.text.trim().isNotEmpty;
+    if (hasText == _hasText) return;
+    _hasText = hasText;
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -40,8 +57,13 @@ class _EntryBarState extends State<EntryBar> {
     final title = _controller.text.trim();
     if (title.isEmpty || _busy) return;
     setState(() => _busy = true);
-    _controller.clear();
-    await widget.onSubmit(title);
+    try {
+      await widget.onSubmit(title);
+      // Only clear once the add landed, so a failed one keeps the draft.
+      if (mounted) _controller.clear();
+    } catch (_) {
+      // The caller surfaces its own error; the text stays for a retry.
+    }
     if (mounted) {
       setState(() => _busy = false);
       _focus.requestFocus();
@@ -51,7 +73,7 @@ class _EntryBarState extends State<EntryBar> {
   @override
   Widget build(BuildContext context) {
     final c = TodoColors.of(context);
-    return Container(
+    final bar = Container(
       decoration: BoxDecoration(
         color: c.primaryBackground,
         boxShadow: [
@@ -111,6 +133,13 @@ class _EntryBarState extends State<EntryBar> {
           ),
         ),
       ),
+    );
+    // The bar is the only place a typed task lives before it is added: a back
+    // press that leaves the screen would throw it away without a word.
+    return UnsavedChangesGuard(
+      dirty: _hasText,
+      message: 'The task you typed has not been added yet.',
+      child: bar,
     );
   }
 }

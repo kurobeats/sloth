@@ -26,6 +26,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     final error = await AppScope.of(context).loadNotifications();
     if (!mounted) return;
     setState(() => _loading = false);
@@ -65,61 +66,66 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          if (state.offline) OfflineBanner(onRetry: state.refresh),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: items.isEmpty
-                        ? ListView(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 32,
-                                  vertical: 80,
-                                ),
-                                child: Column(
-                                  children: [
-                                    Icon(
-                                      Icons.notifications_none,
-                                      size: 48,
-                                      color: c.secondaryText,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'Nothing new',
-                                      style: TextStyle(
-                                        fontSize: TodoText.xl,
-                                        color: c.primaryText,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            if (state.offline) OfflineBanner(onRetry: state.refresh),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: items.isEmpty
+                          ? ListView(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 32,
+                                    vertical: 80,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.notifications_none,
+                                        size: 48,
+                                        color: c.secondaryText,
                                       ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Assignments and comments on your tasks '
-                                      'show up here.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(color: c.secondaryText),
-                                    ),
-                                  ],
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'Nothing new',
+                                        style: TextStyle(
+                                          fontSize: TodoText.xl,
+                                          color: c.primaryText,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Assignments and comments on your tasks '
+                                        'show up here.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: c.secondaryText,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                              ],
+                            )
+                          : ListView.separated(
+                              itemCount: items.length,
+                              separatorBuilder: (_, _) =>
+                                  Divider(height: 1, color: c.divider),
+                              itemBuilder: (context, i) => NotificationTile(
+                                notification: items[i],
+                                onOpen: () => _open(items[i]),
                               ),
-                            ],
-                          )
-                        : ListView.separated(
-                            itemCount: items.length,
-                            separatorBuilder: (_, _) =>
-                                Divider(height: 1, color: c.divider),
-                            itemBuilder: (context, i) => NotificationTile(
-                              notification: items[i],
-                              onOpen: () => _open(items[i]),
                             ),
-                          ),
-                  ),
-          ),
-        ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

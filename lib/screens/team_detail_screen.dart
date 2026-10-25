@@ -80,6 +80,22 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     }
   }
 
+  /// The "last admin cannot be demoted" rule lives in [AppState]; the screen
+  /// only reports what came back.
+  Future<void> _toggleAdmin(AppState state, VikunjaTeamMember member) async {
+    final error = await state.toggleTeamMemberAdmin(
+      widget.teamId,
+      member.username,
+    );
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    await _load();
+  }
+
   Future<void> _addMember(AppState state) async {
     final user = await showUserSearch(context, state);
     if (user == null) return;
@@ -152,160 +168,144 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         onPressed: () => _addMember(state),
         child: const Icon(Icons.person_add_alt),
       ),
-      body: team == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-              children: [
-                TextField(
-                  controller: _name,
-                  style: TextStyle(
-                    fontSize: TodoText.xxl,
-                    fontWeight: FontWeight.w600,
-                    color: c.primaryText,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Name',
-                    border: InputBorder.none,
-                  ),
-                ),
-                TextField(
-                  controller: _description,
-                  maxLines: null,
-                  style: TextStyle(
-                    fontSize: TodoText.medium,
-                    color: c.secondaryText,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    border: InputBorder.none,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Divider(color: c.divider),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-                  child: Text(
-                    'Members',
+      body: SafeArea(
+        top: false,
+        child: team == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                children: [
+                  TextField(
+                    controller: _name,
                     style: TextStyle(
-                      fontSize: TodoText.small,
+                      fontSize: TodoText.xxl,
                       fontWeight: FontWeight.w600,
+                      color: c.primaryText,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      border: InputBorder.none,
+                    ),
+                  ),
+                  TextField(
+                    controller: _description,
+                    maxLines: null,
+                    style: TextStyle(
+                      fontSize: TodoText.medium,
                       color: c.secondaryText,
                     ),
-                  ),
-                ),
-                if (_loading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: c.overdue,
-                        fontSize: TodoText.medium,
-                      ),
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      border: InputBorder.none,
                     ),
-                  )
-                else if (_members.isEmpty)
+                  ),
+                  const SizedBox(height: 8),
+                  Divider(color: c.divider),
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
                     child: Text(
-                      'No members yet',
+                      'Members',
                       style: TextStyle(
+                        fontSize: TodoText.small,
+                        fontWeight: FontWeight.w600,
                         color: c.secondaryText,
-                        fontSize: TodoText.medium,
                       ),
                     ),
                   ),
-                for (final member in _members)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: c.accent,
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        member.initials,
-                        style: TextStyle(fontSize: 12, color: c.onAccent),
+                        _error!,
+                        style: TextStyle(
+                          color: c.overdue,
+                          fontSize: TodoText.medium,
+                        ),
+                      ),
+                    )
+                  else if (_members.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No members yet',
+                        style: TextStyle(
+                          color: c.secondaryText,
+                          fontSize: TodoText.medium,
+                        ),
                       ),
                     ),
-                    title: Text(
-                      member.displayName,
-                      style: TextStyle(
-                        fontSize: TodoText.big,
-                        color: c.primaryText,
+                  for (final member in _members)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: c.accent,
+                        child: Text(
+                          member.initials,
+                          style: TextStyle(fontSize: 12, color: c.onAccent),
+                        ),
                       ),
-                    ),
-                    subtitle: member.username.isEmpty
-                        ? null
-                        : Text(
-                            '@${member.username}',
-                            style: TextStyle(
-                              fontSize: 12,
+                      title: Text(
+                        member.displayName,
+                        style: TextStyle(
+                          fontSize: TodoText.big,
+                          color: c.primaryText,
+                        ),
+                      ),
+                      subtitle: member.username.isEmpty
+                          ? null
+                          : Text(
+                              '@${member.username}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: c.secondaryText,
+                              ),
+                            ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(
+                            onPressed: () => _toggleAdmin(state, member),
+                            child: Text(
+                              member.admin ? 'Admin' : 'Member',
+                              style: TextStyle(
+                                color: member.admin
+                                    ? c.accent
+                                    : c.secondaryText,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove from team',
+                            icon: Icon(
+                              Icons.close,
+                              size: 18,
                               color: c.secondaryText,
                             ),
-                          ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextButton(
-                          onPressed: () async {
-                            // Vikunja lets the last admin demote themselves,
-                            // which locks everyone out of team management.
-                            final admins = _members
-                                .where((m) => m.admin)
-                                .length;
-                            if (member.admin && admins <= 1) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'A team needs at least one admin. '
-                                    'Promote someone else first.',
-                                  ),
-                                ),
+                            onPressed: () async {
+                              final error = await state.removeTeamMember(
+                                widget.teamId,
+                                member.username,
                               );
-                              return;
-                            }
-                            await state.toggleTeamMemberAdmin(
-                              widget.teamId,
-                              member.username,
-                            );
-                            await _load();
-                          },
-                          child: Text(
-                            member.admin ? 'Admin' : 'Member',
-                            style: TextStyle(
-                              color: member.admin ? c.accent : c.secondaryText,
-                            ),
+                              if (!context.mounted) return;
+                              if (error != null) {
+                                ScaffoldMessenger.of(
+                                  context,
+                                ).showSnackBar(SnackBar(content: Text(error)));
+                              }
+                              await _load();
+                            },
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Remove from team',
-                          icon: Icon(
-                            Icons.close,
-                            size: 18,
-                            color: c.secondaryText,
-                          ),
-                          onPressed: () async {
-                            final error = await state.removeTeamMember(
-                              widget.teamId,
-                              member.username,
-                            );
-                            if (!context.mounted) return;
-                            if (error != null) {
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(SnackBar(content: Text(error)));
-                            }
-                            await _load();
-                          },
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

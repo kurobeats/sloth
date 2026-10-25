@@ -14,103 +14,138 @@ class SettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 32),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(
-                  value: ThemeMode.system,
-                  label: Text('System'),
-                  icon: Icon(Icons.brightness_auto),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            _ThemeSection(state: state),
+            const Divider(height: 32),
+            ListTile(
+              leading: Icon(Icons.badge_outlined, color: c.accent),
+              title: Text(
+                'Account settings',
+                style: TextStyle(color: c.primaryText),
+              ),
+              subtitle: Text(
+                'Name, language, timezone, defaults, reminders',
+                style: TextStyle(fontSize: 12, color: c.secondaryText),
+              ),
+              trailing: Icon(Icons.chevron_right, color: c.secondaryText),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AccountSettingsScreen(),
                 ),
-                ButtonSegment(
-                  value: ThemeMode.light,
-                  label: Text('Light'),
-                  icon: Icon(Icons.light_mode),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.dark,
-                  label: Text('Dark'),
-                  icon: Icon(Icons.dark_mode),
-                ),
-              ],
-              selected: {state.themeMode},
-              onSelectionChanged: (selection) =>
-                  state.setThemeMode(selection.first),
-              style: SegmentedButton.styleFrom(
-                backgroundColor: c.primaryBackground,
-                foregroundColor: c.primaryText,
-                selectedBackgroundColor: c.accent,
-                selectedForegroundColor: c.onAccent,
-                side: BorderSide(color: c.divider),
               ),
             ),
-          ),
-          _Section(
-            title: 'Dark theme',
-            subtitle: state.darkTheme.id == TodoColors.defaultDark.id
-                ? 'Default'
-                : null,
-            themes: TodoColors.darkThemes,
-            selectedId: state.darkThemeId,
-            onSelected: state.setDarkTheme,
-          ),
-          _Section(
-            title: 'Light theme',
-            subtitle: state.lightTheme.id == TodoColors.defaultLight.id
-                ? 'Default'
-                : null,
-            themes: TodoColors.lightThemes,
-            selectedId: state.lightThemeId,
-            onSelected: state.setLightTheme,
-          ),
-          const Divider(height: 32),
-          ListTile(
-            leading: Icon(Icons.badge_outlined, color: c.accent),
-            title: Text(
-              'Account settings',
-              style: TextStyle(color: c.primaryText),
-            ),
-            subtitle: Text(
-              'Name, language, timezone, defaults, reminders',
-              style: TextStyle(fontSize: 12, color: c.secondaryText),
-            ),
-            trailing: Icon(Icons.chevron_right, color: c.secondaryText),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Text(
-              'Colour schemes from Gogh (gogh.website), a collection of terminal '
-              'themes by their respective authors, MIT / Apache-2.0 licensed. '
-              'Accent and muted tones are contrast-adjusted here so icons and '
-              'small text stay legible on screen.',
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.4,
-                color: c.secondaryText,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Text(
+                'Colour schemes from Gogh (gogh.website), a collection of terminal '
+                'themes by their respective authors, MIT / Apache-2.0 licensed. '
+                'Accent and muted tones are contrast-adjusted here so icons and '
+                'small text stay legible on screen.',
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.4,
+                  color: c.secondaryText,
+                ),
               ),
             ),
-          ),
-          ListTile(
-            leading: Icon(Icons.logout, color: c.secondaryText),
-            title: Text('Logout', style: TextStyle(color: c.primaryText)),
-            subtitle: Text(
-              state.baseUrl ?? '',
-              style: TextStyle(fontSize: 12, color: c.secondaryText),
-            ),
-            onTap: () async {
-              await state.signOut();
-              if (context.mounted) Navigator.of(context).pop();
-            },
-          ),
-        ],
+            _LogoutRow(state: state),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Light/dark/system switch plus the two scheme lists.
+class _ThemeSection extends StatelessWidget {
+  const _ThemeSection({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: SegmentedButton<ThemeMode>(
+            segments: const [
+              ButtonSegment(
+                value: ThemeMode.system,
+                label: Text('System'),
+                icon: Icon(Icons.brightness_auto),
+              ),
+              ButtonSegment(
+                value: ThemeMode.light,
+                label: Text('Light'),
+                icon: Icon(Icons.light_mode),
+              ),
+              ButtonSegment(
+                value: ThemeMode.dark,
+                label: Text('Dark'),
+                icon: Icon(Icons.dark_mode),
+              ),
+            ],
+            selected: {state.themeMode},
+            onSelectionChanged: (selection) =>
+                state.setThemeMode(selection.first),
+            style: SegmentedButton.styleFrom(
+              backgroundColor: c.primaryBackground,
+              foregroundColor: c.primaryText,
+              selectedBackgroundColor: c.accent,
+              selectedForegroundColor: c.onAccent,
+              side: BorderSide(color: c.divider),
+            ),
+          ),
+        ),
+        _Section(
+          title: 'Dark theme',
+          subtitle: state.darkTheme.id == TodoColors.defaultDark.id
+              ? 'Default'
+              : null,
+          themes: TodoColors.darkThemes,
+          selectedId: state.darkThemeId,
+          onSelected: state.setDarkTheme,
+        ),
+        _Section(
+          title: 'Light theme',
+          subtitle: state.lightTheme.id == TodoColors.defaultLight.id
+              ? 'Default'
+              : null,
+          themes: TodoColors.lightThemes,
+          selectedId: state.lightThemeId,
+          onSelected: state.setLightTheme,
+        ),
+      ],
+    );
+  }
+}
+
+class _LogoutRow extends StatelessWidget {
+  const _LogoutRow({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return ListTile(
+      leading: Icon(Icons.logout, color: c.secondaryText),
+      title: Text('Logout', style: TextStyle(color: c.primaryText)),
+      subtitle: Text(
+        state.baseUrl ?? '',
+        style: TextStyle(fontSize: 12, color: c.secondaryText),
+      ),
+      onTap: () async {
+        await state.signOut();
+        if (context.mounted) Navigator.of(context).pop();
+      },
     );
   }
 }

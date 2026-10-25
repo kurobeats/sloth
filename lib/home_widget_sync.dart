@@ -33,28 +33,28 @@ class HomeWidgetRow {
   final bool overdue;
 }
 
+/// Longest title a row carries. The widget text sits on the lock screen, which
+/// anyone holding the phone can read without unlocking: a task title is shown
+/// but capped, notes and descriptions are never pushed at all (the provider
+/// only reads id/title/meta/tags/overdue, so nothing else is sent).
+const widgetTitleMaxLength = 40;
+
+String _capped(String text) => text.length <= widgetTitleMaxLength
+    ? text
+    : '${text.substring(0, widgetTitleMaxLength)}…';
+
 /// The open tasks due today or earlier, newest deadline last, capped at five.
 List<HomeWidgetRow> homeWidgetRows(List<VikunjaTask> tasks, {DateTime? now}) {
   final today = now ?? DateTime.now();
-  final tomorrow = DateTime(
-    today.year,
-    today.month,
-    today.day,
-  ).add(const Duration(days: 1));
-  final due = tasks.where((t) {
-    final due = t.dueDate;
-    return !t.done && due != null && due.isBefore(tomorrow);
-  }).toList()..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
+  final due = dueBefore(tasks, endOfToday(today));
   return [
     for (final task in due.take(5))
       HomeWidgetRow(
         id: task.id,
-        title: task.title,
+        title: _capped(task.title),
         meta: TodoFormat.dueLabel(task.dueDate!, now: today),
-        tags: task.labels.map((l) => l.title).join(', '),
-        overdue: task.dueDate!.isBefore(
-          DateTime(today.year, today.month, today.day),
-        ),
+        tags: _capped(task.labels.map((l) => l.title).join(', ')),
+        overdue: task.dueDate!.isBefore(startOfDay(today)),
       ),
   ];
 }
@@ -82,24 +82,34 @@ Map<String, int> homeWidgetColours(TodoColors scheme) => {
   'accent': scheme.accent.toARGB32(),
 };
 
+/// The payload last pushed to the widget, so a refresh that changed nothing
+/// visible does not rewrite nine preferences and redraw the lock screen.
+String? _lastPushed;
+
 /// Pushes the current list and the active scheme's colours to the widget.
 /// Safe to call from anywhere: failures are swallowed, the widget is optional.
 Future<void> syncHomeWidget(AppState state) async {
   try {
     final scheme = activeScheme(state);
     final rows = homeWidgetRows(state.allTasksForWidget);
-    // Android picks its rounded card and header drawables from the scheme id.
-    await HomeWidget.saveWidgetData<String>('scheme', scheme.id);
-    await HomeWidget.saveWidgetData<String>('rows', encodeHomeWidgetRows(rows));
-    await HomeWidget.saveWidgetData<int>('count', rows.length);
-    await HomeWidget.saveWidgetData<int>(
-      'overdue',
-      rows.where((r) => r.overdue).length,
-    );
-    for (final entry in homeWidgetColours(scheme).entries) {
-      await HomeWidget.saveWidgetData<int>(entry.key, entry.value);
-    }
+    final encoded = encodeHomeWidgetRows(rows);
+    final colours = homeWidgetColours(scheme);
+    final signature = '$encoded|${scheme.id}|$colours';
+    if (signature == _lastPushed) return;
+    final overdue = rows.where((r) => r.overdue).length;
+    // One round trip per preference is a platform call each; they are
+    // independent, so they go out together.
+    await Future.wait([
+      // Android picks its rounded card and header drawables from the scheme id.
+      HomeWidget.saveWidgetData<String>('scheme', scheme.id),
+      HomeWidget.saveWidgetData<String>('rows', encoded),
+      HomeWidget.saveWidgetData<int>('count', rows.length),
+      HomeWidget.saveWidgetData<int>('overdue', overdue),
+      for (final entry in colours.entries)
+        HomeWidget.saveWidgetData<int>(entry.key, entry.value),
+    ]);
     await HomeWidget.updateWidget(androidName: homeWidgetProvider);
+    _lastPushed = signature;
   } catch (_) {
     // No widget host, no plugin (tests, desktop) — nothing to do.
   }

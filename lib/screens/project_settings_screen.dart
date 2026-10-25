@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../api.dart';
 import '../models.dart';
 import '../state.dart';
 import '../todo_theme.dart';
+import '../widgets/unsaved_changes.dart';
 import 'team_detail_screen.dart';
 
 /// Vikunja project management: details, colour, favorite/archive, sharing with
@@ -26,11 +26,11 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   bool _favorite = false;
   bool _archived = false;
 
-  List<VikunjaProjectShare> _userShares = const [];
-  List<VikunjaProjectShare> _teamShares = const [];
-  List<VikunjaLinkShare> _links = const [];
-  String? _frontendUrl;
   bool _loading = true;
+
+  /// Whether the name or the description differs from the saved project; the
+  /// back guard follows this.
+  bool _dirty = false;
 
   @override
   void initState() {
@@ -41,7 +41,21 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     _hexColor = p.hexColor;
     _favorite = p.isFavorite;
     _archived = p.isArchived;
+    _title.addListener(_syncDirty);
+    _description.addListener(_syncDirty);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  void _syncDirty() {
+    final dirty =
+        _title.text.trim() != widget.project.title ||
+        _description.text.trim() != (widget.project.description ?? '');
+    if (dirty == _dirty) return;
+    if (mounted) {
+      setState(() => _dirty = dirty);
+    } else {
+      _dirty = dirty;
+    }
   }
 
   @override
@@ -52,31 +66,15 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
     super.dispose();
   }
 
+  /// The shares live in [AppState]; the screen only asks for a fresh read.
   Future<void> _load() async {
-    final state = AppScope.of(context);
-    final api = state.api;
-    if (api == null) return;
-    final id = widget.project.id;
-    try {
-      final results = await Future.wait([
-        api.projectUsers(id),
-        api.projectTeams(id),
-        api.linkShares(id),
-        api.frontendUrl(),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _userShares = results[0] as List<VikunjaProjectShare>;
-        _teamShares = results[1] as List<VikunjaProjectShare>;
-        _links = results[2] as List<VikunjaLinkShare>;
-        _frontendUrl = results[3] as String?;
-        _loading = false;
-      });
-    } on VikunjaException catch (e) {
-      if (!mounted) return;
-      setState(() => _loading = false);
+    if (!mounted) return;
+    final error = await AppScope.of(context).projectShares(widget.project.id);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+          .showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -93,8 +91,12 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       isArchived: _archived,
     );
     if (mounted) {
+      // `saveProject` reports failures through `state.error` instead of
+      // returning them, so the snackbar has to read it back.
+      final error = state.error;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Project saved')));
+          .showSnackBar(SnackBar(content: Text(error ?? 'Project saved')));
+      _syncDirty();
     }
   }
 
@@ -165,30 +167,34 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   }
 
   Future<void> _createLink(AppState state) async {
-    final name = TextEditingController();
-    final password = TextEditingController();
-    final created = await showDialog<bool>(
+    final draft = await showDialog<({String name, String password})>(
+      context: context,
+      builder: (_) => const _CreateLinkDialog(),
+    );
+    if (draft == null || !mounted) return;
+    final permission = await _pickPermission(context, 0);
+    if (permission == null) return;
+    final error = await state.createLinkShare(
+      widget.project.id,
+      draft.name.isEmpty ? 'Shared link' : draft.name,
+      permission,
+      password: draft.password,
+    );
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+    await _load();
+  }
+
+  Future<void> _delete(AppState state) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New link share'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password',
-                helperText:
-                    'Optional — visitors must enter it to open the link.',
-              ),
-            ),
-          ],
+        title: Text('Delete "${widget.project.title}"?'),
+        content: const Text(
+          'Are you sure you want to delete this project and all of '
+          'its contents? This includes all tasks and CANNOT BE UNDONE!',
         ),
         actions: [
           TextButton(
@@ -197,21 +203,69 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Create'),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (created != true || !mounted) return;
-    final permission = await _pickPermission(context, 0);
-    if (permission == null) return;
-    final error = await state.createLinkShare(
-      widget.project.id,
-      name.text.trim().isEmpty ? 'Shared link' : name.text.trim(),
-      permission,
-      password: password.text.trim(),
-    );
-    if (error != null && mounted) {
+    if (confirmed != true) return;
+    final error = await state.deleteProject(widget.project);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _setUserShare(
+    AppState state,
+    VikunjaProjectShare share,
+    int permission,
+  ) async {
+    // A share the server sent without an id cannot be addressed.
+    final userId = share.userId;
+    if (userId == null) return;
+    await state.setUserShare(widget.project.id, userId, permission);
+    await _load();
+  }
+
+  Future<void> _removeUserShare(
+    AppState state,
+    VikunjaProjectShare share,
+  ) async {
+    final userId = share.userId;
+    if (userId == null) return;
+    await state.unshareUser(widget.project.id, userId);
+    await _load();
+  }
+
+  Future<void> _setTeamShare(
+    AppState state,
+    VikunjaProjectShare share,
+    int permission,
+  ) async {
+    final teamId = share.teamId;
+    if (teamId == null) return;
+    await state.setTeamShare(widget.project.id, teamId, permission);
+    await _load();
+  }
+
+  Future<void> _removeTeamShare(
+    AppState state,
+    VikunjaProjectShare share,
+  ) async {
+    final teamId = share.teamId;
+    if (teamId == null) return;
+    await state.unshareTeam(widget.project.id, teamId);
+    await _load();
+  }
+
+  Future<void> _deleteLink(AppState state, VikunjaLinkShare link) async {
+    final error = await state.deleteLinkShare(widget.project.id, link.id);
+    if (!mounted) return;
+    if (error != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
     }
@@ -221,9 +275,9 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final c = TodoColors.of(context);
+    final shares = state.sharesOf(widget.project.id);
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: const Text('Project'),
         actions: [
@@ -234,38 +288,8 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) async {
-              if (value == 'delete') {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: Text('Delete "${widget.project.title}"?'),
-                    content: const Text(
-                      'Are you sure you want to delete this project and all of '
-                      'its contents? This includes all tasks and CANNOT BE UNDONE!',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed != true) return;
-                final error = await state.deleteProject(widget.project);
-                if (!context.mounted) return;
-                if (error != null) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(error)));
-                } else {
-                  Navigator.of(context).pop();
-                }
-              }
+            onSelected: (value) {
+              if (value == 'delete') _delete(state);
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -276,94 +300,25 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 48),
         children: [
-          TextField(
-            controller: _title,
-            style: TextStyle(
-              fontSize: TodoText.xxl,
-              fontWeight: FontWeight.w600,
-              color: c.primaryText,
-            ),
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              border: InputBorder.none,
-            ),
+          _ProjectFields(
+            title: _title,
+            description: _description,
+            identifier: _identifier,
           ),
-          TextField(
-            controller: _description,
-            maxLines: null,
-            style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
-            decoration: const InputDecoration(
-              labelText: 'Description',
-              border: InputBorder.none,
-            ),
+          _ColourPicker(
+            hexColor: _hexColor,
+            onSelected: (swatch) =>
+                setState(() => _hexColor = TodoColors.toHex(swatch)),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _identifier,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Project Identifier',
-              helperText:
-                  'Identifies tasks across projects; leave empty to disable.',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Colour',
-            style: TextStyle(fontSize: TodoText.small, color: c.secondaryText),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final swatch in TodoColors.swatches(c))
-                GestureDetector(
-                  onTap: () => setState(() => _hexColor = _toHex(swatch)),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: swatch,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color:
-                            _toHex(swatch).toUpperCase() ==
-                                _hexColor.toUpperCase()
-                            ? c.primaryText
-                            : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _favorite,
-            activeThumbColor: c.accent,
-            title: Text('Favorite', style: TextStyle(color: c.primaryText)),
-            onChanged: (v) {
+          _ToggleRows(
+            favorite: _favorite,
+            archived: _archived,
+            onFavorite: (v) {
               setState(() => _favorite = v);
               _save(state);
             },
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _archived,
-            activeThumbColor: c.accent,
-            title: Text(
-              'Archive this project',
-              style: TextStyle(color: c.primaryText),
-            ),
-            subtitle: Text(
-              'Archived projects cannot be edited or receive new tasks.',
-              style: TextStyle(fontSize: 12, color: c.secondaryText),
-            ),
-            onChanged: (v) {
+            onArchived: (v) {
               setState(() => _archived = v);
               _save(state);
             },
@@ -376,121 +331,325 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                 child: CircularProgressIndicator(),
               ),
             ),
-          _SectionHeader(
+          _ShareSection(
             label: 'Share with users',
             action: 'Add user',
             onAction: () => _addUser(state),
+            icon: Icons.person_outline,
+            shares: shares.users,
+            emptyText: 'Not shared with anyone yet',
+            onPermission: (share, permission) =>
+                _setUserShare(state, share, permission),
+            onRemove: (share) => _removeUserShare(state, share),
           ),
-          if (_userShares.isEmpty) _emptyRow('Not shared with anyone yet'),
-          for (final share in _userShares)
-            _ShareRow(
-              leading: Icons.person_outline,
-              name: share.displayName,
-              permission: share.permission,
-              onPermission: (permission) async {
-                await state.setUserShare(
-                  widget.project.id,
-                  share.userId!,
-                  permission,
-                );
-                await _load();
-              },
-              onRemove: () async {
-                await state.unshareUser(widget.project.id, share.userId!);
-                await _load();
-              },
-            ),
-          _SectionHeader(
+          _ShareSection(
             label: 'Share with teams',
             action: 'Add team',
             onAction: () => _addTeam(state),
+            icon: Icons.groups_outlined,
+            shares: shares.teams,
+            emptyText: 'Not shared with any team',
+            onPermission: (share, permission) =>
+                _setTeamShare(state, share, permission),
+            onRemove: (share) => _removeTeamShare(state, share),
           ),
-          if (_teamShares.isEmpty) _emptyRow('Not shared with any team'),
-          for (final share in _teamShares)
-            _ShareRow(
-              leading: Icons.groups_outlined,
-              name: share.displayName,
-              permission: share.permission,
-              onPermission: (permission) async {
-                await state.setTeamShare(
-                  widget.project.id,
-                  share.teamId!,
-                  permission,
-                );
-                await _load();
-              },
-              onRemove: () async {
-                await state.unshareTeam(widget.project.id, share.teamId!);
-                await _load();
-              },
-            ),
-          _SectionHeader(
-            label: 'Link shares',
-            action: 'Create link share',
-            onAction: () => _createLink(state),
+          _LinkShares(
+            links: shares.links,
+            frontendUrl: shares.frontendUrl ?? state.baseUrl ?? '',
+            onCreate: () => _createLink(state),
+            onDelete: (link) => _deleteLink(state, link),
           ),
-          if (_links.isEmpty) _emptyRow('No link shares'),
-          for (final link in _links)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.link, color: c.accent),
-              title: Text(link.name, style: TextStyle(color: c.primaryText)),
-              subtitle: Text(
-                '${permissionLabel(link.permission)} link'
-                '${link.hasPassword ? " · password protected" : ""}',
-                style: TextStyle(fontSize: 12, color: c.secondaryText),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Copy link',
-                    icon: Icon(Icons.copy, size: 18, color: c.secondaryText),
-                    onPressed: () async {
-                      final base = _frontendUrl ?? state.baseUrl ?? '';
-                      final prefix = base.endsWith('/') ? base : '$base/';
-                      await Clipboard.setData(
-                        ClipboardData(text: '${prefix}share/${link.hash}/auth'),
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link copied')),
-                        );
-                      }
-                    },
-                  ),
-                  IconButton(
-                    tooltip: 'Delete link share',
-                    icon: Icon(Icons.close, size: 18, color: c.secondaryText),
-                    onPressed: () async {
-                      await state.api?.deleteLinkShare(
-                        widget.project.id,
-                        link.id,
-                      );
-                      await _load();
-                    },
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
+    // The name and the description only reach the server on Save; leaving
+    // without one would drop them.
+    return UnsavedChangesGuard(
+      dirty: _dirty,
+      message: 'Your changes to this project have not been saved yet.',
+      child: scaffold,
+    );
   }
+}
 
-  static String _toHex(Color color) =>
-      '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+/// Title, description and identifier inputs; their controllers live on the
+/// screen so a save reads them at any time.
+class _ProjectFields extends StatelessWidget {
+  const _ProjectFields({
+    required this.title,
+    required this.description,
+    required this.identifier,
+  });
 
-  Widget _emptyRow(String text) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Text(
-      text,
-      style: TextStyle(
-        fontSize: TodoText.medium,
-        color: TodoColors.of(context).secondaryText,
+  final TextEditingController title;
+  final TextEditingController description;
+  final TextEditingController identifier;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: title,
+          style: TextStyle(
+            fontSize: TodoText.xxl,
+            fontWeight: FontWeight.w600,
+            color: c.primaryText,
+          ),
+          decoration: const InputDecoration(
+            labelText: 'Title',
+            border: InputBorder.none,
+          ),
+        ),
+        TextField(
+          controller: description,
+          maxLines: null,
+          style: TextStyle(fontSize: TodoText.medium, color: c.secondaryText),
+          decoration: const InputDecoration(
+            labelText: 'Description',
+            border: InputBorder.none,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: identifier,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Project Identifier',
+            helperText:
+                'Identifies tasks across projects; leave empty to disable.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The server colour swatches; the selected one gets a ring.
+class _ColourPicker extends StatelessWidget {
+  const _ColourPicker({required this.hexColor, required this.onSelected});
+
+  final String hexColor;
+  final ValueChanged<Color> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          'Colour',
+          style: TextStyle(fontSize: TodoText.small, color: c.secondaryText),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final swatch in TodoColors.swatches(c))
+              GestureDetector(
+                onTap: () => onSelected(swatch),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: swatch,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color:
+                          TodoColors.toHex(swatch).toUpperCase() ==
+                              hexColor.toUpperCase()
+                          ? c.primaryText
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Favorite and archive switches; both save immediately.
+class _ToggleRows extends StatelessWidget {
+  const _ToggleRows({
+    required this.favorite,
+    required this.archived,
+    required this.onFavorite,
+    required this.onArchived,
+  });
+
+  final bool favorite;
+  final bool archived;
+  final ValueChanged<bool> onFavorite;
+  final ValueChanged<bool> onArchived;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    return Column(
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: favorite,
+          activeThumbColor: c.accent,
+          title: Text('Favorite', style: TextStyle(color: c.primaryText)),
+          onChanged: onFavorite,
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: archived,
+          activeThumbColor: c.accent,
+          title: Text(
+            'Archive this project',
+            style: TextStyle(color: c.primaryText),
+          ),
+          subtitle: Text(
+            'Archived projects cannot be edited or receive new tasks.',
+            style: TextStyle(fontSize: 12, color: c.secondaryText),
+          ),
+          onChanged: onArchived,
+        ),
+      ],
+    );
+  }
+}
+
+/// One share list: a header with its add action, then a row per share.
+class _ShareSection extends StatelessWidget {
+  const _ShareSection({
+    required this.label,
+    required this.action,
+    required this.onAction,
+    required this.icon,
+    required this.shares,
+    required this.emptyText,
+    required this.onPermission,
+    required this.onRemove,
+  });
+
+  final String label;
+  final String action;
+  final VoidCallback onAction;
+  final IconData icon;
+  final List<VikunjaProjectShare> shares;
+  final String emptyText;
+  final void Function(VikunjaProjectShare share, int permission) onPermission;
+  final ValueChanged<VikunjaProjectShare> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(label: label, action: action, onAction: onAction),
+        if (shares.isEmpty) _EmptyRow(text: emptyText),
+        for (final share in shares)
+          _ShareRow(
+            leading: icon,
+            name: share.displayName,
+            permission: share.permission,
+            onPermission: (permission) => onPermission(share, permission),
+            onRemove: () => onRemove(share),
+          ),
+      ],
+    );
+  }
+}
+
+/// Link shares with copy and delete actions.
+class _LinkShares extends StatelessWidget {
+  const _LinkShares({
+    required this.links,
+    required this.frontendUrl,
+    required this.onCreate,
+    required this.onDelete,
+  });
+
+  final List<VikunjaLinkShare> links;
+  final String frontendUrl;
+  final VoidCallback onCreate;
+  final ValueChanged<VikunjaLinkShare> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = TodoColors.of(context);
+    final prefix = frontendUrl.endsWith('/') ? frontendUrl : '$frontendUrl/';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(
+          label: 'Link shares',
+          action: 'Create link share',
+          onAction: onCreate,
+        ),
+        if (links.isEmpty) const _EmptyRow(text: 'No link shares'),
+        for (final link in links)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.link, color: c.accent),
+            title: Text(link.name, style: TextStyle(color: c.primaryText)),
+            subtitle: Text(
+              '${permissionLabel(link.permission)} link'
+              '${link.hasPassword ? " · password protected" : ""}',
+              style: TextStyle(fontSize: 12, color: c.secondaryText),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Copy link',
+                  icon: Icon(Icons.copy, size: 18, color: c.secondaryText),
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: '${prefix}share/${link.hash}/auth'),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Link copied')),
+                      );
+                    }
+                  },
+                ),
+                IconButton(
+                  tooltip: 'Delete link share',
+                  icon: Icon(Icons.close, size: 18, color: c.secondaryText),
+                  onPressed: () => onDelete(link),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EmptyRow extends StatelessWidget {
+  const _EmptyRow({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: TodoText.medium,
+          color: TodoColors.of(context).secondaryText,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -595,4 +754,62 @@ Future<int?> _pickPermission(BuildContext context, int current) {
       ),
     ),
   );
+}
+
+/// New link share form. Owns its controllers so they die with the dialog.
+class _CreateLinkDialog extends StatefulWidget {
+  const _CreateLinkDialog();
+
+  @override
+  State<_CreateLinkDialog> createState() => _CreateLinkDialogState();
+}
+
+class _CreateLinkDialogState extends State<_CreateLinkDialog> {
+  final _name = TextEditingController();
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New link share'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _name,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Name'),
+          ),
+          TextField(
+            controller: _password,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Password',
+              helperText: 'Optional — visitors must enter it to open the link.',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, (
+            name: _name.text.trim(),
+            password: _password.text.trim(),
+          )),
+          child: const Text('Create'),
+        ),
+      ],
+    );
+  }
 }

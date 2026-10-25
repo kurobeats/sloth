@@ -247,7 +247,7 @@ class AssigneesSection extends StatelessWidget {
                   ScaffoldMessenger.of(context)
                       .showSnackBar(SnackBar(content: Text(error)));
                 }
-                onChanged();
+                if (context.mounted) onChanged();
               },
             ),
           ),
@@ -264,7 +264,7 @@ class AssigneesSection extends StatelessWidget {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
     }
-    onChanged();
+    if (context.mounted) onChanged();
   }
 }
 
@@ -312,13 +312,13 @@ class RelationsSection extends StatelessWidget {
                   builder: (_) => TaskDetailScreen(taskId: relation.taskId),
                 ),
               );
-              onChanged();
+              if (context.mounted) onChanged();
             },
             onToggleDone: () async {
               if (!requireOnline(context, state)) return;
               final target = state.taskById(relation.taskId);
               if (target != null) await state.toggleDone(target);
-              onChanged();
+              if (context.mounted) onChanged();
             },
             onRemove: () async {
               if (!requireOnline(context, state)) return;
@@ -331,7 +331,7 @@ class RelationsSection extends StatelessWidget {
                 ScaffoldMessenger.of(context)
                     .showSnackBar(SnackBar(content: Text(error)));
               }
-              onChanged();
+              if (context.mounted) onChanged();
             },
           ),
       ],
@@ -382,7 +382,7 @@ class RelationsSection extends StatelessWidget {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
     }
-    onChanged();
+    if (context.mounted) onChanged();
   }
 }
 
@@ -399,6 +399,7 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
   final _controller = TextEditingController();
   List<VikunjaTask> _results = const [];
   bool _searching = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -409,13 +410,24 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
   Future<void> _search() async {
     final query = _controller.text.trim();
     if (query.isEmpty) return;
-    setState(() => _searching = true);
-    final results = await widget.state.searchTasks(query);
-    if (!mounted) return;
     setState(() {
-      _results = results;
-      _searching = false;
+      _searching = true;
+      _error = null;
     });
+    try {
+      final results = await widget.state.searchTasks(query);
+      if (!mounted) return;
+      setState(() {
+        _results = results;
+        _searching = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _error = '$e';
+      });
+    }
   }
 
   @override
@@ -453,7 +465,7 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Search for a task to relate',
+                    _error ?? 'Search for a task to relate',
                     style: TextStyle(color: c.secondaryText),
                   ),
                 ),
@@ -471,6 +483,38 @@ class _TaskSearchSheetState extends State<_TaskSearchSheet> {
         ),
       ],
     );
+  }
+}
+
+/// Shares [bytes] as a real file named [name]: the receiving app takes the
+/// name and the mime type from the file, not from the payload.
+///
+/// The copy lands in `Directory.systemTemp`. `path_provider` is not a
+/// dependency, and on Android the engine points `TMPDIR` at the app's own cache
+/// directory, so the copy stays private without it. The directory is removed
+/// again whatever [share] does — a cancelled or failed share used to leave a
+/// copy of the attachment behind until the OS trimmed the cache.
+///
+/// [share] is a parameter so this lifecycle can be tested without the platform
+/// share sheet.
+Future<void> shareAttachmentFile({
+  required String name,
+  required String? mime,
+  required List<int> bytes,
+  required Future<void> Function(XFile file) share,
+}) async {
+  final safeName = name.replaceAll(RegExp(r'[/\\]'), '_');
+  final dir = await Directory.systemTemp.createTemp('sloth-share');
+  try {
+    final file = await File('${dir.path}/$safeName').writeAsBytes(bytes);
+    await share(XFile(file.path, name: safeName, mimeType: mime));
+  } finally {
+    try {
+      await dir.delete(recursive: true);
+    } on FileSystemException {
+      // Already gone, or the receiving app still holds the file: the OS owns
+      // the cache directory, so there is nothing else to do about it.
+    }
   }
 }
 
@@ -540,16 +584,14 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
     final state = AppScope.of(context);
     final bytes = await state.downloadAttachment(widget.taskId, attachment.id);
     if (bytes == null) return;
-    // Share needs a real file to keep the original name and mime type.
-    final dir = await Directory.systemTemp.createTemp('sloth-share');
-    final name = attachment.name.replaceAll(RegExp(r'[/\\]'), '_');
-    final file = await File('${dir.path}/$name').writeAsBytes(bytes);
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, name: name, mimeType: attachment.mime)],
-      ),
+    await shareAttachmentFile(
+      name: attachment.name,
+      mime: attachment.mime,
+      bytes: bytes,
+      share: (file) async {
+        await SharePlus.instance.share(ShareParams(files: [file]));
+      },
     );
-    await dir.delete(recursive: true).catchError((_) => dir);
   }
 
   @override

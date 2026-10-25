@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status-bar notification icons are only named from Dart strings
+  (``NotificationsService``), so the release resource shrinker finds no
+  reference to them and strips them from the APK. Every launch then fails to
+  initialise notifications with ``PlatformException(invalid_icon)``.
+
+  tools:keep keeps both drawables alive through ``shrinkResources`` in release
+  builds. Keep this file in sync with the names returned by
+  ``NotificationsService.notificationIconFor`` — test/notification_icon_test.dart
+  checks it.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@drawable/ic_notification_dark" />

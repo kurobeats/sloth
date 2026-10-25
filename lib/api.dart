@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
@@ -29,7 +30,7 @@ class VikunjaApi {
     required String baseUrl,
     bool allowSelfSigned = false,
     http.Client? client,
-  }) : baseUrl = _normalize(baseUrl),
+  }) : baseUrl = _normalizeChecked(baseUrl),
        allowSelfSigned = allowSelfSigned,
        _client = client ?? _defaultClient(baseUrl, allowSelfSigned);
 
@@ -38,6 +39,15 @@ class VikunjaApi {
   final bool allowSelfSigned;
 
   String? token;
+
+  /// True when [token] is the long-lived API token minted after login. A login
+  /// JWT dies after 10 minutes, so AppState must not persist it as the session
+  /// and should warn when only the JWT is left.
+  bool sessionTokenIsDurable = false;
+
+  /// When [token] expires, when the server told us (JWT `exp`) or when the
+  /// minted token was asked to expire. Null when unknown.
+  DateTime? tokenExpiresAt;
 
   /// Self-hosted instances often use a private CA (e.g. Caddy's internal
   /// authority). Certificate errors are accepted only for the configured host,
@@ -59,6 +69,28 @@ class VikunjaApi {
 
   static const _timeout = Duration(seconds: 20);
   static const _userAgent = 'Sloth/1.0 (+https://github.com/kurobeats/sloth)';
+
+  /// Plain http would send the password and the 90-day session token in the
+  /// clear, so only https is accepted. Loopback stays open for tests and
+  /// desktop dev against a local server.
+  static const cleartextError =
+      'Use https:// — plain http would send your password in the clear';
+
+  /// Null when [raw] is a URL the app may talk to.
+  static String? urlProblem(String raw) {
+    final b = _normalize(raw);
+    if (!b.startsWith('http://')) return null;
+    final host = Uri.tryParse(b)?.host ?? '';
+    const loopback = {'localhost', '127.0.0.1', '::1'};
+    return loopback.contains(host) ? null : cleartextError;
+  }
+
+  static String _normalizeChecked(String raw) {
+    final b = _normalize(raw);
+    final problem = urlProblem(b);
+    if (problem != null) throw VikunjaException(0, problem);
+    return b;
+  }
 
   static String _normalize(String raw) {
     var b = raw.replaceAll(RegExp(r'\s'), '');
@@ -131,25 +163,75 @@ class VikunjaApi {
     }
   }
 
+  /// True when a paged read stopped at [maxPages] with a full page in hand:
+  /// the server had more rows than the ceiling allows, so the list may be
+  /// missing some. The caller clears it before a read and shows a notice
+  /// afterwards instead of pretending the list is complete.
+  bool truncated = false;
+
   Future<List<T>> _list<T>(
     String path,
     T Function(Map<String, dynamic>) parse, {
     Map<String, dynamic>? query,
     int perPage = 50,
+  }) => paginate(
+    path: path,
+    parse: parse,
+    perPage: perPage,
+    onTruncated: () => truncated = true,
+    fetch: (page) => _send(
+      'GET',
+      path,
+      query: {...?query, 'page': page, 'per_page': perPage},
+    ),
+  );
+
+  /// Shortcut: 2000-item ceiling, paginate further if a user ever needs it.
+  static const maxPages = 40;
+
+  /// Walks the pages of a list endpoint in order.
+  ///
+  /// [fetch] and [parse] are separate so the page walk can be driven from a
+  /// test: the order of the two is what decides whether the round trips queue
+  /// up behind the parsing work or overlap with it.
+  @visibleForTesting
+  static Future<List<T>> paginate<T>({
+    required String path,
+    required Future<dynamic> Function(int page) fetch,
+    required T Function(Map<String, dynamic>) parse,
+    int perPage = 50,
+    int maxPage = maxPages,
+    void Function()? onTruncated,
   }) async {
     final out = <T>[];
     var page = 1;
+    // Speculative prefetch: page n+1 goes out as soon as page n arrives, so
+    // the round trip runs while page n is parsed instead of after it. The walk
+    // still visits the pages in order — only the request overlaps.
+    var pending = fetch(page);
     while (true) {
-      final batch = await _send(
-        'GET',
-        path,
-        query: {...?query, 'page': page, 'per_page': perPage},
-      );
-      if (batch is! List) break;
+      final batch = await pending;
+      if (batch is! List) {
+        // A page that is not a list is a broken server, not the end of the
+        // data: returning page 1 as the whole result silently loses rows.
+        throw VikunjaException(
+          0,
+          'Unexpected response from $path: expected a list, got '
+          '${batch == null ? 'an empty body' : batch.runtimeType}',
+        );
+      }
+      final last = batch.length < perPage || page >= maxPage;
+      // A full page at the ceiling means the server had more to give: the walk
+      // is ending because of the cap, not because the data ran out.
+      if (page >= maxPage && batch.length >= perPage) onTruncated?.call();
+      final next = last ? null : fetch(page + 1);
+      // A parse that throws must not turn the prefetched request into an
+      // unhandled error on top of the failure the caller is about to see.
+      next?.ignore();
       out.addAll(batch.whereType<Map<String, dynamic>>().map(parse));
-      if (batch.length < perPage) break;
+      if (next == null) break;
+      pending = next;
       page++;
-      if (page > 40) break; // shortcut: 2000-item ceiling, paginate further if a user ever needs it
     }
     return out;
   }
@@ -175,7 +257,14 @@ class VikunjaApi {
     // lifetime we choose. So the JWT is only used to mint one durable token —
     // it has to be set first, because minting authenticates with it.
     token = t;
-    token = await _sessionToken() ?? t;
+    sessionTokenIsDurable = false;
+    tokenExpiresAt = _jwtExpiry(t);
+    final minted = await _sessionToken();
+    if (minted != null) {
+      token = minted;
+      sessionTokenIsDurable = true;
+      tokenExpiresAt = _mintedExpiresAt;
+    }
     return token!;
   }
 
@@ -226,36 +315,66 @@ class VikunjaApi {
             ],
       };
       if (permissions.isEmpty) return null;
-      await _dropOldSessionTokens();
+      // Create first, drop after: deleting up front leaves the user with no
+      // durable credential when the create fails.
+      final oldIds = await _sessionTokenIds();
+      final expiresAt = DateTime.now().toUtc().add(sessionTokenLifetime);
       final res = await _send(
         'PUT',
         '/tokens',
         body: {
           'title': sessionTokenTitle,
           'permissions': permissions,
-          'expires_at': DateTime.now()
-              .toUtc()
-              .add(sessionTokenLifetime)
-              .toIso8601String(),
+          'expires_at': expiresAt.toIso8601String(),
         },
       );
       final t = res is Map ? res['token'] as String? : null;
-      return (t == null || t.isEmpty) ? null : t;
+      if (t == null || t.isEmpty) return null;
+      _mintedExpiresAt = expiresAt;
+      for (final id in oldIds) {
+        try {
+          await _send('DELETE', '/tokens/$id');
+        } catch (_) {
+          // A leftover token is harmless; losing the new one is not.
+        }
+      }
+      return t;
     } catch (_) {
       // Token creation is an upgrade, not a requirement: the JWT still works.
       return null;
     }
   }
 
-  /// Each login replaces the previous token, so a phone that logs in often does
-  /// not leave a trail of live credentials behind.
-  Future<void> _dropOldSessionTokens() async {
+  DateTime? _mintedExpiresAt;
+
+  /// Ids of the session tokens that already existed, so each login replaces
+  /// the previous one instead of leaving a trail of live credentials behind.
+  Future<List<int>> _sessionTokenIds() async {
     final res = await _send('GET', '/tokens');
-    if (res is! List) return;
-    for (final entry in res) {
-      if (entry is! Map || entry['title'] != sessionTokenTitle) continue;
-      final id = entry['id'];
-      if (id is int) await _send('DELETE', '/tokens/$id');
+    if (res is! List) return const [];
+    return [
+      for (final entry in res)
+        if (entry is Map &&
+            entry['title'] == sessionTokenTitle &&
+            entry['id'] is int)
+          entry['id'] as int,
+    ];
+  }
+
+  /// The `exp` claim of a login JWT, or null when it is not a readable JWT.
+  static DateTime? _jwtExpiry(String jwt) {
+    final parts = jwt.split('.');
+    if (parts.length != 3) return null;
+    try {
+      final claims = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      final exp = claims is Map ? claims['exp'] : null;
+      return exp is int
+          ? DateTime.fromMillisecondsSinceEpoch(exp * 1000, isUtc: true)
+          : null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -269,11 +388,51 @@ class VikunjaApi {
     )..headers.addAll(_headers);
     try {
       final res = await _client.send(req).timeout(_timeout);
-      final bytes = await res.stream.toBytes();
-      if (res.statusCode >= 400 || bytes.isEmpty) return null;
+      if (res.statusCode >= 400) return null;
+      final bytes = await _readCapped(res, 'Your avatar');
+      if (bytes.isEmpty) return null;
       return bytes;
     } catch (_) {
       return null; // fall back to initials
+    }
+  }
+
+  /// Matches the server's default max_file_size. A bigger body is aborted mid
+  /// stream instead of being buffered whole into memory.
+  static const maxTransferBytes = 25 * 1024 * 1024;
+
+  static const _tooLarge = 'is larger than 25 MB';
+
+  Future<Uint8List> _readCapped(http.StreamedResponse res, String what) async {
+    final declared = res.contentLength;
+    if (declared != null && declared > maxTransferBytes) {
+      throw VikunjaException(0, '$what $_tooLarge');
+    }
+    final out = BytesBuilder(copy: false);
+    await for (final chunk in res.stream) {
+      out.add(chunk);
+      if (out.length > maxTransferBytes) {
+        throw VikunjaException(0, '$what $_tooLarge');
+      }
+    }
+    return out.takeBytes();
+  }
+
+  /// Runs an upload/download, surfacing the raw socket and HTTP errors as the
+  /// same VikunjaException the rest of the client throws.
+  Future<T> _transfer<T>(Future<T> Function() run) async {
+    try {
+      return await run();
+    } on VikunjaException {
+      rethrow;
+    } on TimeoutException {
+      throw VikunjaException(0, 'Server did not respond in time');
+    } on http.ClientException catch (e) {
+      throw VikunjaException(0, 'Transfer failed ($baseUrl): ${e.message}');
+    } on SocketException catch (e) {
+      throw VikunjaException(0, 'Cannot reach $baseUrl (${e.message})');
+    } on HttpException catch (e) {
+      throw VikunjaException(0, 'Transfer failed ($baseUrl): ${e.message}');
     }
   }
 
@@ -372,11 +531,7 @@ class VikunjaApi {
   }) => _list(
     '/projects/$projectId/views/$viewId/tasks',
     VikunjaTask.fromJson,
-    query: {
-      'filter': ?filter,
-      'sort_by': 'position',
-      'order_by': 'asc',
-    },
+    query: {'filter': ?filter, 'sort_by': 'position', 'order_by': 'asc'},
   );
 
   Future<VikunjaTask> task(int id) async {
@@ -447,45 +602,42 @@ class VikunjaApi {
   Future<void> markNotificationRead(int id, {bool read = true}) =>
       _send('POST', '/notifications/$id', body: {'read': read});
 
-  Future<void> uploadAttachment(
-    int taskId,
-    String filename,
-    List<int> bytes,
-  ) async {
-    final request =
-        http.MultipartRequest('PUT', _uri('/tasks/$taskId/attachments'))
-          ..headers.addAll({
-            'Authorization': 'Bearer ${token ?? ''}',
-            'User-Agent': _userAgent,
-          });
-    request.files.add(
-      http.MultipartFile.fromBytes('files', bytes, filename: filename),
-    );
-    final streamed = await _client.send(request).timeout(_timeout * 6);
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode >= 400) {
-      throw VikunjaException(
-        res.statusCode,
-        _messageFrom(res.bodyBytes) ?? 'Upload failed (${res.statusCode})',
-      );
-    }
-  }
+  Future<void> uploadAttachment(int taskId, String filename, List<int> bytes) =>
+      _transfer(() async {
+        final request =
+            http.MultipartRequest('PUT', _uri('/tasks/$taskId/attachments'))
+              ..headers.addAll({
+                'Authorization': 'Bearer ${token ?? ''}',
+                'User-Agent': _userAgent,
+              });
+        request.files.add(
+          http.MultipartFile.fromBytes('files', bytes, filename: filename),
+        );
+        final streamed = await _client.send(request).timeout(_timeout * 6);
+        final res = await http.Response.fromStream(streamed);
+        if (res.statusCode >= 400) {
+          throw VikunjaException(
+            res.statusCode,
+            _messageFrom(res.bodyBytes) ?? 'Upload failed (${res.statusCode})',
+          );
+        }
+      });
 
-  Future<Uint8List> downloadAttachment(int taskId, int attachmentId) async {
-    final req = http.Request(
-      'GET',
-      _uri('/tasks/$taskId/attachments/$attachmentId'),
-    )..headers.addAll(_headers);
-    final res = await _client.send(req).timeout(_timeout * 4);
-    final bytes = await res.stream.toBytes();
-    if (res.statusCode >= 400) {
-      throw VikunjaException(
-        res.statusCode,
-        'Download failed (${res.statusCode})',
-      );
-    }
-    return bytes;
-  }
+  Future<Uint8List> downloadAttachment(int taskId, int attachmentId) =>
+      _transfer(() async {
+        final req = http.Request(
+          'GET',
+          _uri('/tasks/$taskId/attachments/$attachmentId'),
+        )..headers.addAll(_headers);
+        final res = await _client.send(req).timeout(_timeout * 4);
+        if (res.statusCode >= 400) {
+          throw VikunjaException(
+            res.statusCode,
+            'Download failed (${res.statusCode})',
+          );
+        }
+        return _readCapped(res, 'This attachment');
+      });
 
   Future<void> deleteAttachment(int taskId, int attachmentId) =>
       _send('DELETE', '/tasks/$taskId/attachments/$attachmentId');
@@ -743,4 +895,3 @@ class VikunjaApi {
 
   void close() => _client.close();
 }
-

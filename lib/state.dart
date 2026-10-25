@@ -1,8 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -41,6 +42,15 @@ class ListSelection {
 
   bool get groupsByDay => smart == SmartList.upcoming;
 
+  /// Whether rows in this list need the project name beside the task: the
+  /// lists that mix projects (a tag, or a smart list across all of them) do, a
+  /// single project's own list and the upcoming window do not.
+  bool get showProject =>
+      tag != null ||
+      smart == SmartList.allTasks ||
+      smart == SmartList.assigned ||
+      smart == SmartList.favorites;
+
   String get key => tag != null
       ? 'tag:${tag!.id}'
       : smart != null
@@ -54,9 +64,56 @@ class ListSelection {
   int get hashCode => key.hashCode;
 }
 
+/// Everything the app shell (the `MaterialApp`) renders: the appearance and
+/// whether a session is up. Data notifications never produce a new value, so
+/// loading flips, mutations and the notification poll no longer rebuild the
+/// navigator and the route under it.
+@immutable
+class AppShell {
+  const AppShell({
+    required this.lightThemeId,
+    required this.darkThemeId,
+    required this.themeMode,
+    required this.restoring,
+    required this.signedIn,
+  });
+
+  final String lightThemeId;
+  final String darkThemeId;
+  final ThemeMode themeMode;
+  final bool restoring;
+  final bool signedIn;
+
+  TodoColors get lightTheme => TodoColors.byId(lightThemeId, Brightness.light);
+
+  TodoColors get darkTheme => TodoColors.byId(darkThemeId, Brightness.dark);
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppShell &&
+      other.lightThemeId == lightThemeId &&
+      other.darkThemeId == darkThemeId &&
+      other.themeMode == themeMode &&
+      other.restoring == restoring &&
+      other.signedIn == signedIn;
+
+  @override
+  int get hashCode =>
+      Object.hash(lightThemeId, darkThemeId, themeMode, restoring, signedIn);
+}
+
 class AppState extends ChangeNotifier {
   AppState({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? storageOptions;
+
+  /// The session token, the theme ids and the offline snapshot live in the
+  /// keychain/keystore. Both sides are pinned explicitly: on iOS the default
+  /// item rides an encrypted backup to a new device, while
+  /// `first_unlock_this_device` keeps the data on this phone.
+  /// flutter_secure_storage 11 dropped v9's `encryptedSharedPreferences` flag —
+  /// the Android side is Keystore-wrapped AES-GCM either way, so there is
+  /// nothing left to switch on there.
+  static const storageOptions = secureStorageOptions;
 
   static const _kBase = 'vikunja_base';
   static const _kToken = 'vikunja_token';
@@ -81,6 +138,21 @@ class AppState extends ChangeNotifier {
   static const offlineEditError =
       'Editing is disabled while offline. Reconnect to your server to make changes.';
 
+  /// What the user is told when the server rejects the stored token. One
+  /// string for every path: the session ends once, wherever the 401 came from.
+  static const sessionExpiredError =
+      'Your session expired. Please log in again.';
+
+  /// Vikunja lets the last admin of a team demote themselves, which locks
+  /// everyone out of team management. Refused in the state, not in a screen.
+  static const lastAdminError =
+      'A team needs at least one admin. Promote someone else first.';
+
+  /// How many times a session was actually torn down. A 401 must end it once,
+  /// however many screens were talking to the server at the time.
+  @visibleForTesting
+  int signOuts = 0;
+
   /// Every write path checks this; offline is read-only.
   bool get canEdit => !offline;
   DateTime? cachedAt;
@@ -96,9 +168,35 @@ class AppState extends ChangeNotifier {
 
   ListSelection selection = const ListSelection.smart(SmartList.dueToday);
 
-  bool restoring = true;
+  bool _restoring = true;
+  bool get restoring => _restoring;
+
+  /// Flipping [restoring] off is what completes [ready], so every way out of a
+  /// restore — the real one, a failed one, or a fake in a test — releases the
+  /// waiters.
+  set restoring(bool value) {
+    _restoring = value;
+    if (value || _readyCompleter.isCompleted) return;
+    _readyCompleter.complete();
+  }
+
+  /// Completes when the restore has finished. Startup waits on this instead of
+  /// re-reading [restoring] every 100 ms.
+  Future<void> get ready => _readyCompleter.future;
+  final Completer<void> _readyCompleter = Completer<void>();
+
   bool loading = false;
   String? error;
+
+  /// A paged read in the last refresh stopped at the client's row ceiling, so
+  /// the list may be missing rows. The list screen says so instead of showing
+  /// a silently cut list.
+  bool listTruncated = false;
+
+  /// What the list screen shows when [listTruncated].
+  static String get truncationNotice =>
+      'This list is longer than ${VikunjaApi.maxPages * 50} rows, so only the '
+      'first part is shown.';
 
   // ------------------------------------------------------------ appearance --
 
@@ -109,19 +207,52 @@ class AppState extends ChangeNotifier {
   TodoColors get lightTheme => TodoColors.byId(lightThemeId, Brightness.light);
   TodoColors get darkTheme => TodoColors.byId(darkThemeId, Brightness.dark);
 
+  AppShell get _shellConfig => AppShell(
+    lightThemeId: lightThemeId,
+    darkThemeId: darkThemeId,
+    themeMode: themeMode,
+    restoring: restoring,
+    signedIn: isSignedIn,
+  );
+
+  /// Fires only when what the app shell renders changes. [ValueNotifier] drops
+  /// values equal to the current one, so the 50-odd data notifications a
+  /// refresh produces cost one comparison here instead of a whole-app rebuild.
+  late final ValueNotifier<AppShell> shell = ValueNotifier(_shellConfig);
+
+  /// Set by [dispose]. A request that was in flight when the screen went away
+  /// still completes, and notifying a disposed notifier throws.
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    _openCache = null;
+    _completedCache = null;
+    _projectIndex = null;
+    _taskIndex = null;
+    shell.value = _shellConfig;
+    super.notifyListeners();
+  }
+
   Future<void> loadAppearance() async {
     try {
-      lightThemeId =
-          await _storage.read(key: _kLightTheme) ?? TodoColors.defaultLight.id;
-      darkThemeId =
-          await _storage.read(key: _kDarkTheme) ?? TodoColors.defaultDark.id;
-      themeMode = switch (await _storage.read(key: _kThemeMode)) {
+      // Four independent keys: read them together, not one await after another.
+      final saved = await Future.wait([
+        _storage.read(key: _kLightTheme),
+        _storage.read(key: _kDarkTheme),
+        _storage.read(key: _kThemeMode),
+        _storage.read(key: _kAllowSelfSigned),
+      ]);
+      lightThemeId = saved[0] ?? TodoColors.defaultLight.id;
+      darkThemeId = saved[1] ?? TodoColors.defaultDark.id;
+      themeMode = switch (saved[2]) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
       // Remembered per server, so the login form can prefill the box.
-      allowSelfSigned = (await _storage.read(key: _kAllowSelfSigned)) == 'true';
+      allowSelfSigned = saved[3] == 'true';
     } catch (_) {
       // Storage unavailable: fall back to the defaults above.
     }
@@ -159,23 +290,35 @@ class AppState extends ChangeNotifier {
 
   bool get isSignedIn => api != null && user != null;
 
+  /// Test seam for the client [signIn] and [restore] build: a fake http client
+  /// can then observe `close()`. Unset in production.
+  @visibleForTesting
+  VikunjaApi Function(String baseUrl, {bool allowSelfSigned})? clientFactory;
+
+  VikunjaApi _newClient(String baseUrl, bool allowSelfSigned) =>
+      clientFactory?.call(baseUrl, allowSelfSigned: allowSelfSigned) ??
+      VikunjaApi(baseUrl: baseUrl, allowSelfSigned: allowSelfSigned);
+
   // ---------------------------------------------------------------- boot ----
 
   Future<void> restore() async {
     await loadAppearance();
     try {
-      final base = await _storage.read(key: _kBase);
-      final token = await _storage.read(key: _kToken);
-      final allowBadCert =
-          (await _storage.read(key: _kAllowSelfSigned)) == 'true';
+      final saved = await Future.wait([
+        _storage.read(key: _kBase),
+        _storage.read(key: _kToken),
+        _storage.read(key: _kAllowSelfSigned),
+      ]);
+      final base = saved[0];
+      final token = saved[1];
+      final allowBadCert = saved[2] == 'true';
       // The server is remembered even with no token, so the login form can
       // prefill it after a logout.
       lastServer = base;
       if (base != null && token != null && token.isNotEmpty) {
-        final client = VikunjaApi(baseUrl: base, allowSelfSigned: allowBadCert)
-          ..token = token;
+        final client = _newClient(base, allowBadCert)..token = token;
         baseUrl = base;
-        _cache = OfflineCache(key: 'cache:$base');
+        _cache = OfflineCache(key: 'cache:$base', storage: _storage);
 
         // Paint from the snapshot immediately; it is the only thing that works
         // when the server is unreachable.
@@ -186,16 +329,12 @@ class AppState extends ChangeNotifier {
         } on VikunjaException catch (e) {
           if (e.isUnauthorized) {
             await _storage.delete(key: _kToken);
-            api?.close();
-            api = null;
-            user = null;
+            _dropClient(client);
             offline = false;
-            error = 'Your session expired. Please log in again.';
+            error = sessionExpiredError;
           } else if (!hadCache) {
             error = e.message;
-            api?.close();
-            api = null;
-            user = null;
+            _dropClient(client);
           } else {
             // Keep the cached view, read-only.
             offline = true;
@@ -204,9 +343,7 @@ class AppState extends ChangeNotifier {
         } catch (e) {
           if (!hadCache) {
             error = 'Cannot reach $base. Check the server or your connection.';
-            api?.close();
-            api = null;
-            user = null;
+            _dropClient(client);
           } else {
             offline = true;
             error = null;
@@ -230,24 +367,32 @@ class AppState extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
-    final client = VikunjaApi(baseUrl: server, allowSelfSigned: allowBadCert);
+    final client = _newClient(server, allowBadCert);
     try {
       await client.info(); // fail fast on a wrong URL
       await client.login(username, password);
       await _connect(client, persist: true);
       await refresh();
     } on VikunjaException catch (e) {
-      api = null;
-      user = null;
+      _dropClient(client);
       error = e.message;
     } catch (e) {
-      api = null;
-      user = null;
+      _dropClient(client);
       error = e.toString();
     } finally {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// Drops a client whose connect failed. `_connect` assigns [api] only after
+  /// its first await, so a throw before that leaves the client owned by nobody:
+  /// without this its socket pool leaks on every failed login or restore.
+  void _dropClient(VikunjaApi client) {
+    if (!identical(api, client)) api?.close();
+    api = null;
+    user = null;
+    client.close();
   }
 
   Future<void> _connect(VikunjaApi client, {required bool persist}) async {
@@ -259,20 +404,34 @@ class AppState extends ChangeNotifier {
     user = me;
     baseUrl = client.baseUrl;
     lastServer = client.baseUrl;
-    _cache = OfflineCache(key: 'cache:${client.baseUrl}');
-    avatar = await client.avatar(me.username);
+    _cache = OfflineCache(key: 'cache:${client.baseUrl}', storage: _storage);
     allowSelfSigned = client.allowSelfSigned;
+    // The avatar is one more round trip and only feeds a 32px circle: fetching
+    // it serially held the first paint of the task list behind a 404.
+    unawaited(_loadAvatar(client, me.username));
     if (persist) {
-      await _storage.write(key: _kBase, value: client.baseUrl);
-      await _storage.write(key: _kToken, value: client.token);
-      await _storage.write(
-        key: _kAllowSelfSigned,
-        value: client.allowSelfSigned.toString(),
-      );
+      // Three independent keys; write them together.
+      await Future.wait([
+        _storage.write(key: _kBase, value: client.baseUrl),
+        _storage.write(key: _kToken, value: client.token),
+        _storage.write(
+          key: _kAllowSelfSigned,
+          value: client.allowSelfSigned.toString(),
+        ),
+      ]);
     }
   }
 
+  Future<void> _loadAvatar(VikunjaApi client, String username) async {
+    final bytes = await client.avatar(username);
+    // A sign-out or another account in the meantime must not get this face.
+    if (bytes == null || !identical(api, client)) return;
+    avatar = bytes;
+    notifyListeners();
+  }
+
   Future<void> signOut() async {
+    signOuts++;
     lastServer = api?.baseUrl ?? lastServer;
     api?.close();
     api = null;
@@ -281,9 +440,24 @@ class AppState extends ChangeNotifier {
     labels = const [];
     teams = const [];
     avatar = null;
+    listTruncated = false;
     _allTasks = const [];
     _projectTasks = {};
+    _shares.clear();
+    _boardBuckets.clear();
+    _fetchedTasks.clear();
     selection = const ListSelection.smart(SmartList.dueToday);
+    // A snapshot still queued from the last refresh must not land after the
+    // wipe, and the dedupe key belongs to the account that just left.
+    _cacheFlush?.cancel();
+    _cacheFlush = null;
+    _pendingCache = null;
+    _lastCachePayload = null;
+    // The snapshot is the whole workspace, team member emails included: a
+    // logged-out device must not keep it.
+    await _cache?.clear();
+    _cache = null;
+    cachedAt = null;
     // Keep the theme and the per-server certificate trust: both are device
     // preferences, and re-logging into a private-CA server should not require
     // ticking the box again.
@@ -291,14 +465,55 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Ends the session at most once, however many screens were talking to the
+  /// server with the same dead token: the first 401 wins, the rest find no
+  /// session left to end.
+  Future<void> _endSession() async {
+    if (api == null) return;
+    await signOut();
+    error = sessionExpiredError;
+    notifyListeners();
+  }
+
+  /// The one place a failed state-level call becomes a message. A 401 signs the
+  /// app out instead of leaving the stale token in use and failing again on the
+  /// next screen; anything else is passed through as the server said it.
+  Future<String> _failure(VikunjaException e) async {
+    if (!e.isUnauthorized) return e.message;
+    await _endSession();
+    return sessionExpiredError;
+  }
+
   // ---------------------------------------------------------------- data ----
 
-  Future<void> refresh() async {
+  /// The refresh that is already running, if any. The poller, a
+  /// pull-to-refresh and a screen retry all land here, and two of them reading
+  /// the same endpoints at once only doubles the traffic and the chance of one
+  /// answer landing on top of the other.
+  Future<void>? _refreshInFlight;
+
+  Future<void> refresh() {
+    final pending = _refreshInFlight;
+    if (pending != null) return pending;
+    late final Future<void> run;
+    run = _refresh().whenComplete(() {
+      if (identical(_refreshInFlight, run)) _refreshInFlight = null;
+    });
+    _refreshInFlight = run;
+    return run;
+  }
+
+  Future<void> _refresh() async {
     final client = api;
     if (client == null) return;
     loading = true;
     error = null;
     notifyListeners();
+    // Local edits that land from here on are newer than this read.
+    final editMark = _localEdits.length;
+    // Any of the reads below may hit the row ceiling; the flag is read back
+    // once they have all landed.
+    client.truncated = false;
     try {
       final results = await Future.wait([
         client.projects(),
@@ -309,14 +524,28 @@ class AppState extends ChangeNotifier {
         // old server must not fail the whole refresh.
         client.notifications().catchError((_) => <VikunjaNotification>[]),
       ]);
+      // Read the locally held copies before the fresh lists replace them: the
+      // answer below was fetched before those edits landed.
+      final localEdits = _localEditsSince(editMark);
       projects = results[0] as List<VikunjaProject>;
       _allTasks = results[1] as List<VikunjaTask>;
+      if (localEdits.isNotEmpty) {
+        _allTasks = [for (final t in _allTasks) localEdits[t.id] ?? t];
+      }
+      _localEdits.clear();
+      for (final task in _allTasks) {
+        _fetchedTasks.remove(task.id);
+      }
       labels = results[2] as List<VikunjaLabel>;
       teams = results[3] as List<VikunjaTeam>;
       notifications = results[4] as List<VikunjaNotification>;
+      listTruncated = client.truncated;
       _projectTasks = {};
-      if (selection.project != null) {
-        await _loadProjectTasks();
+      final project = selection.project;
+      if (project != null) {
+        // The all-tasks fetch above already carries this project's rows; asking
+        // the view endpoint again fetched the same tasks a second time.
+        _projectTasks[project.id] = _tasksInProject(project.id);
       }
       offline = false;
       error = null;
@@ -324,8 +553,7 @@ class AppState extends ChangeNotifier {
       unawaited(syncHomeWidget(this));
     } on VikunjaException catch (e) {
       if (e.isUnauthorized) {
-        await signOut();
-        error = 'Your session expired. Please log in again.';
+        error = await _failure(e);
       } else if (await _loadCache()) {
         // No server: keep whatever the cache gave us.
         offline = true;
@@ -341,6 +569,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// The tasks [projectId] owns, from the full task list.
+  List<VikunjaTask> _tasksInProject(int projectId) => [
+    for (final t in _allTasks)
+      if (t.projectId == projectId) t,
+  ];
 
   Future<void> _loadProjectTasks() async {
     final client = api;
@@ -363,7 +597,7 @@ class AppState extends ChangeNotifier {
       try {
         await _loadProjectTasks();
       } on VikunjaException catch (e) {
-        error = e.message;
+        error = await _failure(e);
       } finally {
         loading = false;
         notifyListeners();
@@ -373,42 +607,32 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------- derived views ----
 
+  /// Clock seam: the tests pin "today" instead of depending on the wall clock.
+  DateTime Function() clock = DateTime.now;
+
+  // Derived views are rebuilt on the first read after a notification, so a
+  // rebuild does not rescan every task.
+  List<VikunjaTask>? _openCache;
+  List<VikunjaTask>? _completedCache;
+  Map<int, VikunjaProject>? _projectIndex;
+  Map<int, VikunjaTask>? _taskIndex;
+
   /// Every task the app holds, for the home screen widget.
   List<VikunjaTask> get allTasksForWidget => _allTasks;
-
-  /// Open tasks due today or earlier, across all projects.
-  List<VikunjaTask> get dueTodayTasks {
-    final now = DateTime.now();
-    final tomorrow = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).add(const Duration(days: 1));
-    return _allTasks.where((t) {
-      final due = t.dueDate;
-      return !t.done && due != null && due.isBefore(tomorrow);
-    }).toList()..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
-  }
 
   List<VikunjaTask> get _source => selection.project != null
       ? (_projectTasks[selection.project!.id] ?? const [])
       : _allTasks;
 
   /// Whether a task belongs to the current list, ignoring its done state.
-  bool _matchesList(VikunjaTask t) {
+  /// [today] is midnight and [tomorrow] the exclusive cut-off, hoisted by the
+  /// caller so a pass over 500 tasks reads the clock once.
+  bool _matchesList(VikunjaTask t, DateTime today, DateTime tomorrow) {
     final tag = selection.tag;
     if (tag != null) return t.labels.any((l) => l.id == tag.id);
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     switch (selection.smart) {
       case SmartList.dueToday:
-        final due = t.dueDate;
-        if (due == null) return false;
-        return DateTime(
-          due.year,
-          due.month,
-          due.day,
-        ).isBefore(today.add(const Duration(days: 1)));
+        return t.isDueBy(tomorrow);
       case SmartList.favorites:
         return t.isFavorite;
       case SmartList.upcoming:
@@ -430,15 +654,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  List<VikunjaTask> get openTasks {
-    final list = _source.where((t) => !t.done && _matchesList(t)).toList();
+  List<VikunjaTask> get openTasks => _openCache ??= _computeOpen();
+
+  List<VikunjaTask> _computeOpen() {
+    final today = startOfDay(clock());
+    final tomorrow = endOfToday(clock());
+    final list = _source
+        .where((t) => !t.done && _matchesList(t, today, tomorrow))
+        .toList();
     list.sort(_compare);
     return list;
   }
 
-  List<VikunjaTask> get completedTasks {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+  List<VikunjaTask> get completedTasks =>
+      _completedCache ??= _computeCompleted();
+
+  List<VikunjaTask> _computeCompleted() {
+    final today = startOfDay(clock());
+    final tomorrow = endOfToday(clock());
     // Smart lists show recent completions only; project and tag views show all.
     final cutoff = switch (selection.smart) {
       SmartList.dueToday => today,
@@ -446,7 +679,7 @@ class AppState extends ChangeNotifier {
       _ => today.subtract(const Duration(days: 7)),
     };
     final list = _source.where((t) {
-      if (!t.done || !_matchesList(t)) return false;
+      if (!t.done || !_matchesList(t, today, tomorrow)) return false;
       if (cutoff == null) return true;
       final at = t.doneAt;
       return at != null && !at.isBefore(cutoff);
@@ -458,20 +691,15 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
+  /// Open-task count per smart list; one hoisted clock for the whole pass.
   int countFor(SmartList smart) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = startOfDay(clock());
+    final tomorrow = endOfToday(clock());
     return _allTasks.where((t) {
       if (t.done) return false;
       switch (smart) {
         case SmartList.dueToday:
-          final due = t.dueDate;
-          if (due == null) return false;
-          return DateTime(
-            due.year,
-            due.month,
-            due.day,
-          ).isBefore(today.add(const Duration(days: 1)));
+          return t.isDueBy(tomorrow);
         case SmartList.favorites:
           return t.isFavorite;
         case SmartList.upcoming:
@@ -531,16 +759,20 @@ class AppState extends ChangeNotifier {
     return b.id.compareTo(a.id);
   }
 
-  VikunjaProject? projectOf(VikunjaTask task) {
-    for (final p in projects) {
-      if (p.id == task.projectId) return p;
-    }
-    return null;
-  }
+  /// Projects by id. `projectOf` runs once per task tile, so it reads this
+  /// index instead of rescanning [projects]; the index is rebuilt on the first
+  /// read after a notification.
+  Map<int, VikunjaProject> get projectIndex =>
+      _projectIndex ??= {for (final p in projects) p.id: p};
+
+  VikunjaProject? projectOf(VikunjaTask task) => projectIndex[task.projectId];
 
   // ------------------------------------------------------------- mutation --
 
-  /// Applies [change] locally, then persists. Rolls back on failure.
+  /// Applies [change] to a copy, swaps that copy into the caches, then
+  /// persists. A rejected edit is rolled back to the instance the caches held:
+  /// `refresh()` cannot be the rollback, it swallows its own errors and leaves
+  /// the optimistic edit on screen.
   Future<void> mutate(
     VikunjaTask task,
     void Function(VikunjaTask) change,
@@ -552,39 +784,83 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    change(task);
+    final original = task;
+    final edited = task.copyWith();
+    change(edited);
+    _replace(edited);
+    // One notification for the local edit. The round trip only reports back
+    // when the server actually changed something.
     notifyListeners();
     try {
-      final saved = await client.updateTask(task);
-      _replace(saved);
+      final saved = await client.updateTask(edited);
       error = null;
+      _replace(saved);
+      if (saved != edited) notifyListeners();
     } on VikunjaException catch (e) {
-      error = e.message;
-      await refresh();
-    } finally {
+      _replace(original);
+      error = await _failure(e);
       notifyListeners();
+    } finally {
       unawaited(syncHomeWidget(this));
     }
   }
 
-  /// Task by id, from whatever list the app currently holds.
-  VikunjaTask? taskById(int id) {
-    for (final t in [..._allTasks, ..._projectTasks.values.expand((e) => e)]) {
-      if (t.id == id) return t;
+  /// Task by id, from whatever list the app currently holds. The index is built
+  /// on the first read after a change, so the per-tile lookups in the list view
+  /// do not scan every task each.
+  VikunjaTask? taskById(int id) => (_taskIndex ??= {
+    ..._fetchedTasks,
+    for (final t in _allTasks) t.id: t,
+    for (final list in _projectTasks.values)
+      for (final t in list) t.id: t,
+  })[id];
+
+  /// Tasks fetched one at a time that no visible list holds yet: a detail
+  /// screen opened from a notification, or a cold start before the first
+  /// refresh. They are the same single source of truth as the lists, just not
+  /// part of one; a refreshed list takes over the id when it arrives.
+  final Map<int, VikunjaTask> _fetchedTasks = {};
+
+  /// The cached list for [projectId]. Exposed so a test can prove a later
+  /// update copies the list instead of editing one already handed out.
+  @visibleForTesting
+  List<VikunjaTask>? projectTasksForTest(int projectId) =>
+      _projectTasks[projectId];
+
+  /// Ids of tasks this app changed locally, oldest first. A refresh that was
+  /// already in flight read the server before those changes, so its answer must
+  /// not put the old values back on screen.
+  final List<int> _localEdits = [];
+
+  /// The locally held version of every task edited after [editMark].
+  Map<int, VikunjaTask> _localEditsSince(int editMark) {
+    if (editMark >= _localEdits.length) return const {};
+    final kept = <int, VikunjaTask>{};
+    for (final id in _localEdits.skip(editMark)) {
+      final task = taskById(id);
+      if (task != null) kept[id] = task;
     }
-    return null;
+    return kept;
   }
 
   void _replace(VikunjaTask fresh) {
+    // A change the app holds locally is newer than any read already in flight.
+    _localEdits.add(fresh.id);
+    if (_localEdits.length > 1000) {
+      _localEdits.removeRange(0, _localEdits.length - 500);
+    }
     final i = _allTasks.indexWhere((t) => t.id == fresh.id);
     if (i >= 0) {
       _allTasks = List.of(_allTasks)..[i] = fresh;
     }
     final projectList = _projectTasks[fresh.projectId];
-    if (projectList != null) {
-      final j = projectList.indexWhere((t) => t.id == fresh.id);
-      if (j >= 0) projectList[j] = fresh;
+    final j = projectList?.indexWhere((t) => t.id == fresh.id) ?? -1;
+    // Copy-on-write: a view may still be painting the list it was handed.
+    if (j >= 0) {
+      _projectTasks[fresh.projectId] = List.of(projectList!)..[j] = fresh;
     }
+    if (i < 0 && j < 0) _fetchedTasks[fresh.id] = fresh;
+    _taskIndex?[fresh.id] = fresh;
   }
 
   Future<VikunjaTask?> addTask(String title, {VikunjaProject? project}) async {
@@ -625,7 +901,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return created;
     } on VikunjaException catch (e) {
-      error = e.message;
+      error = await _failure(e);
       notifyListeners();
       return null;
     }
@@ -641,7 +917,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return fresh;
     } on VikunjaException catch (e) {
-      error = e.message;
+      error = await _failure(e);
       notifyListeners();
       return null;
     }
@@ -666,12 +942,16 @@ class AppState extends ChangeNotifier {
       return;
     }
     _allTasks = _allTasks.where((t) => t.id != task.id).toList();
-    _projectTasks[task.projectId]?.removeWhere((t) => t.id == task.id);
+    final projectList = _projectTasks[task.projectId];
+    if (projectList != null) {
+      _projectTasks[task.projectId] = List.of(projectList)
+        ..removeWhere((t) => t.id == task.id);
+    }
     notifyListeners();
     try {
       await client.deleteTask(task.id);
     } on VikunjaException catch (e) {
-      error = e.message;
+      error = await _failure(e);
       await refresh();
     }
     notifyListeners();
@@ -697,7 +977,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -706,15 +986,66 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------- cache -----
 
+  /// Snapshot writes: encoding the whole workspace on the UI isolate after
+  /// every refresh was the most expensive thing a poll did. Identical data is
+  /// skipped outright, and a burst of changes coalesces into one write of the
+  /// latest payload. The first write still lands immediately — the logout path
+  /// and [refresh]'s caller expect the snapshot on disk when it returns.
+  static const _cacheWriteWindow = Duration(milliseconds: 200);
+  String? _lastCachePayload;
+  Map<String, dynamic>? _pendingCache;
+  Timer? _cacheFlush;
+  DateTime? _lastCacheWriteAt;
+
+  /// How many times the snapshot actually reached the disk.
+  @visibleForTesting
+  int cacheWrites = 0;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    // Nothing may be left waiting on a restore that will not finish.
+    if (!_readyCompleter.isCompleted) _readyCompleter.complete();
+    _cacheFlush?.cancel();
+    super.dispose();
+  }
+
   Future<void> _saveCache() async {
+    if (_cache == null) return;
     final snapshot = <String, dynamic>{
-      'savedAt': DateTime.now().toIso8601String(),
       'user': user?.toJson(),
       'projects': [for (final p in projects) p.toJson()],
       'labels': [for (final l in labels) l.toJson()],
       'teams': [for (final t in teams) t.toJson()],
       'tasks': [for (final t in _allTasks) t.toJson()],
     };
+    // `savedAt` is the write's own stamp, so it is not part of the comparison.
+    final encoded = jsonEncode(snapshot);
+    if (encoded == _lastCachePayload) return;
+    _lastCachePayload = encoded;
+    snapshot['savedAt'] = DateTime.now().toIso8601String();
+    _pendingCache = snapshot;
+    final last = _lastCacheWriteAt;
+    final since = last == null ? null : DateTime.now().difference(last);
+    if (since != null && since < _cacheWriteWindow) {
+      _cacheFlush?.cancel();
+      _cacheFlush = Timer(
+        _cacheWriteWindow - since,
+        () => unawaited(_flushCache()),
+      );
+      return;
+    }
+    await _flushCache();
+  }
+
+  Future<void> _flushCache() async {
+    _cacheFlush?.cancel();
+    _cacheFlush = null;
+    final snapshot = _pendingCache;
+    _pendingCache = null;
+    if (snapshot == null) return;
+    cacheWrites++;
+    _lastCacheWriteAt = DateTime.now();
     await _cache?.save(snapshot);
   }
 
@@ -759,7 +1090,7 @@ class AppState extends ChangeNotifier {
     try {
       return await api?.comments(taskId) ?? const [];
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
+      if (e.isUnauthorized) await _endSession();
       rethrow;
     }
   }
@@ -774,12 +1105,17 @@ class AppState extends ChangeNotifier {
     final client = api;
     if (client == null) return null;
     try {
-      notifications = await client.notifications();
-      notifyListeners();
+      final fresh = await client.notifications();
+      // The 10-minute poll asks whether anything arrived; only a real change is
+      // worth a rebuild of the whole task list behind the badge.
+      if (!listEquals(fresh, notifications)) {
+        notifications = fresh;
+        notifyListeners();
+      }
       return null;
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
-      return e.message;
+      if (e.isUnauthorized) await _endSession();
+      return _failure(e);
     }
   }
 
@@ -808,23 +1144,36 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
   // ------------------------------------------------------------- kanban ----
 
-  /// Kanban columns for a project, or null when it has no kanban view.
-  Future<List<VikunjaBucket>?> board(VikunjaProject project) async {
+  /// Kanban columns by view id, as last loaded or optimistically moved.
+  final Map<int, List<VikunjaBucket>> _boardBuckets = {};
+
+  /// Kanban columns as last loaded, or null when the project has no kanban
+  /// view. AppState owns them: the board screen renders this, it does not keep
+  /// a copy of the server's data in its own State.
+  List<VikunjaBucket>? bucketsFor(VikunjaProject project) {
+    final viewId = project.kanbanViewId;
+    return viewId == null ? null : _boardBuckets[viewId];
+  }
+
+  /// Loads the board into the state. Null on success, else a message.
+  Future<String?> loadBoard(VikunjaProject project) async {
     final viewId = project.kanbanViewId;
     if (viewId == null) return null;
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
     try {
-      return await api?.board(project.id, viewId);
-    } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
-      error = e.message;
+      _boardBuckets[viewId] = await client.board(project.id, viewId);
       notifyListeners();
       return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
     }
   }
 
@@ -836,12 +1185,63 @@ class AppState extends ChangeNotifier {
     if (offline) return offlineEditError;
     final viewId = project.kanbanViewId;
     if (viewId == null) return 'This project has no kanban view.';
+    final before = _boardBuckets[viewId];
+    final optimistic = before == null
+        ? null
+        : _moveInBuckets(before, taskId, bucketId);
+    if (optimistic != null) {
+      _boardBuckets[viewId] = optimistic;
+      notifyListeners();
+    }
     try {
       await api?.moveToBucket(project.id, viewId, bucketId, taskId);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      // The card goes back to the column it came from.
+      if (before != null) {
+        _boardBuckets[viewId] = before;
+        notifyListeners();
+      }
+      return _failure(e);
     }
+  }
+
+  /// [buckets] with [taskId] moved to [bucketId], or null when that changes
+  /// nothing (unknown bucket, or the task is not on the board).
+  static List<VikunjaBucket>? _moveInBuckets(
+    List<VikunjaBucket> buckets,
+    int taskId,
+    int bucketId,
+  ) {
+    if (!buckets.any((b) => b.id == bucketId)) return null;
+    VikunjaTask? moved;
+    final stripped = <VikunjaBucket>[];
+    for (final bucket in buckets) {
+      final keeps = <VikunjaTask>[];
+      for (final task in bucket.tasks) {
+        if (task.id == taskId) {
+          moved = task;
+        } else {
+          keeps.add(task);
+        }
+      }
+      stripped.add(
+        VikunjaBucket(id: bucket.id, title: bucket.title, tasks: keeps),
+      );
+    }
+    final task = moved;
+    if (task == null) return null;
+    return [
+      for (final bucket in stripped)
+        if (bucket.id == bucketId)
+          VikunjaBucket(
+            id: bucket.id,
+            title: bucket.title,
+            tasks: [...bucket.tasks, task],
+          )
+        else
+          bucket,
+    ];
   }
 
   Future<String?> addComment(int taskId, String text) async {
@@ -850,7 +1250,7 @@ class AppState extends ChangeNotifier {
       await api?.addComment(taskId, text);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -860,7 +1260,7 @@ class AppState extends ChangeNotifier {
       await api?.deleteComment(taskId, commentId);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -873,7 +1273,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -886,7 +1286,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -896,7 +1296,7 @@ class AppState extends ChangeNotifier {
     try {
       return await api?.attachments(taskId) ?? const [];
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
+      if (e.isUnauthorized) await _endSession();
       rethrow;
     }
   }
@@ -911,7 +1311,7 @@ class AppState extends ChangeNotifier {
       await api?.uploadAttachment(taskId, name, bytes);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -921,7 +1321,7 @@ class AppState extends ChangeNotifier {
       await api?.deleteAttachment(taskId, attachmentId);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -929,7 +1329,7 @@ class AppState extends ChangeNotifier {
     try {
       return await api?.downloadAttachment(taskId, attachmentId);
     } on VikunjaException catch (e) {
-      error = e.message;
+      error = await _failure(e);
       notifyListeners();
       return null;
     }
@@ -943,7 +1343,7 @@ class AppState extends ChangeNotifier {
       await api?.addRelation(taskId, otherTaskId, kind);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -957,7 +1357,7 @@ class AppState extends ChangeNotifier {
       await api?.removeRelation(taskId, kind, otherTaskId);
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -979,7 +1379,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1003,7 +1403,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1017,9 +1417,8 @@ class AppState extends ChangeNotifier {
       for (var i = 0; i < _allTasks.length; i++) {
         final t = _allTasks[i];
         if (t.labels.any((l) => l.id == label.id)) {
-          _allTasks[i] = _copyTaskWithLabels(
-            t,
-            t.labels.where((l) => l.id != label.id).toList(),
+          _allTasks[i] = t.copyWith(
+            labels: t.labels.where((l) => l.id != label.id).toList(),
           );
         }
       }
@@ -1029,38 +1428,9 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
-
-  static VikunjaTask _copyTaskWithLabels(
-    VikunjaTask t,
-    List<VikunjaLabel> labels,
-  ) => VikunjaTask(
-    id: t.id,
-    projectId: t.projectId,
-    title: t.title,
-    description: t.description,
-    done: t.done,
-    doneAt: t.doneAt,
-    dueDate: t.dueDate,
-    startDate: t.startDate,
-    endDate: t.endDate,
-    priority: t.priority,
-    isFavorite: t.isFavorite,
-    percentDone: t.percentDone,
-    labels: labels,
-    assignees: t.assignees,
-    reminders: t.reminders,
-    repeatAfter: t.repeatAfter,
-    repeatMode: t.repeatMode,
-    hexColor: t.hexColor,
-    identifier: t.identifier,
-    created: t.created,
-    updated: t.updated,
-    position: t.position,
-    commentCount: t.commentCount,
-  );
 
   Future<String?> setTaskLabels(
     VikunjaTask task,
@@ -1071,12 +1441,12 @@ class AppState extends ChangeNotifier {
     if (client == null) return 'Not signed in';
     try {
       await client.setTaskLabels(task.id, labels);
-      final updated = _copyTaskWithLabels(task, labels);
+      final updated = task.copyWith(labels: labels);
       _replace(updated);
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1090,7 +1460,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1112,7 +1482,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1126,7 +1496,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1136,8 +1506,7 @@ class AppState extends ChangeNotifier {
     try {
       teams = await client.teams();
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
-      error = e.message;
+      error = await _failure(e);
     }
     notifyListeners();
   }
@@ -1146,7 +1515,7 @@ class AppState extends ChangeNotifier {
     try {
       return await api?.teamMembers(teamId) ?? const [];
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
+      if (e.isUnauthorized) await _endSession();
       rethrow;
     }
   }
@@ -1158,7 +1527,7 @@ class AppState extends ChangeNotifier {
       await reloadTeams();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1169,18 +1538,29 @@ class AppState extends ChangeNotifier {
       await reloadTeams();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
   Future<String?> toggleTeamMemberAdmin(int teamId, String username) async {
     if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
     try {
-      await api?.toggleTeamMemberAdmin(teamId, username);
+      final members = await client.teamMembers(teamId);
+      final admins = members.where((m) => m.admin).length;
+      var targetIsAdmin = false;
+      for (final member in members) {
+        if (member.username == username) targetIsAdmin = member.admin;
+      }
+      // Demoting the last admin would lock everyone out of team management, so
+      // it is refused here, where the member list is, and not in a screen.
+      if (targetIsAdmin && admins <= 1) return lastAdminError;
+      await client.toggleTeamMemberAdmin(teamId, username);
       await reloadTeams();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1188,7 +1568,7 @@ class AppState extends ChangeNotifier {
     try {
       return await api?.users(query) ?? const [];
     } on VikunjaException catch (e) {
-      if (e.isUnauthorized) await signOut();
+      if (e.isUnauthorized) await _endSession();
       rethrow;
     }
   }
@@ -1225,7 +1605,7 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     } on VikunjaException catch (e) {
-      error = e.message;
+      error = await _failure(e);
       notifyListeners();
     }
   }
@@ -1244,26 +1624,126 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
   Future<void> refreshShares() async => notifyListeners();
 
-  Future<String?> shareWithTeam(
+  /// Shares loaded so far, by project id. The screens render this instead of
+  /// keeping their own copy of what the server said.
+  final Map<int, ProjectShares> _shares = {};
+
+  /// Who [projectId] is shared with, as the state last loaded it.
+  ProjectShares sharesOf(int projectId) =>
+      _shares[projectId] ?? ProjectShares.empty;
+
+  /// Reads a project's shares into the state. Null on success, else a message.
+  Future<String?> projectShares(int projectId) async {
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final results = await Future.wait<Object?>([
+        client.projectUsers(projectId),
+        client.projectTeams(projectId),
+        client.linkShares(projectId),
+        client.frontendUrl(),
+      ]);
+      _shares[projectId] = ProjectShares(
+        users: results[0] as List<VikunjaProjectShare>,
+        teams: results[1] as List<VikunjaProjectShare>,
+        links: results[2] as List<VikunjaLinkShare>,
+        frontendUrl: results[3] as String?,
+      );
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
+    }
+  }
+
+  Future<String?> addUserShare(
+    int projectId,
+    int userId,
+    int permission,
+  ) async {
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.addProjectUser(projectId, userId, permission);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
+    }
+  }
+
+  Future<String?> addTeamShare(
     int projectId,
     int teamId,
     int permission,
   ) async {
     if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
     try {
-      await api?.addProjectTeam(projectId, teamId, permission);
+      await client.addProjectTeam(projectId, teamId, permission);
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
+
+  /// Removes a user or a team share, whichever is given.
+  Future<String?> removeShare(int projectId, {int? userId, int? teamId}) async {
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
+    if (userId == null && teamId == null) return 'No share to remove.';
+    try {
+      if (userId != null) await client.removeProjectUser(projectId, userId);
+      if (teamId != null) await client.removeProjectTeam(projectId, teamId);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
+    }
+  }
+
+  Future<String?> deleteLinkShare(int projectId, int shareId) async {
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      await client.deleteLinkShare(projectId, shareId);
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
+    }
+  }
+
+  /// Creates a project and adds it to the state. Null on success, else a
+  /// message — a sign-in that ended mid-dialog must not throw at the caller.
+  Future<String?> createProject(String title, {String? hexColor}) async {
+    if (offline) return offlineEditError;
+    final client = api;
+    if (client == null) return 'Not signed in';
+    try {
+      final created = await client.createProject(title, hexColor: hexColor);
+      projects = [...projects, created];
+      notifyListeners();
+      return null;
+    } on VikunjaException catch (e) {
+      return _failure(e);
+    }
+  }
+
+  Future<String?> shareWithTeam(int projectId, int teamId, int permission) =>
+      addTeamShare(projectId, teamId, permission);
 
   Future<String?> createLinkShare(
     int projectId,
@@ -1282,7 +1762,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
@@ -1297,35 +1777,15 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
-  Future<String?> unshareTeam(int projectId, int teamId) async {
-    if (offline) return offlineEditError;
-    try {
-      await api?.removeProjectTeam(projectId, teamId);
-      notifyListeners();
-      return null;
-    } on VikunjaException catch (e) {
-      return e.message;
-    }
-  }
+  Future<String?> unshareTeam(int projectId, int teamId) =>
+      removeShare(projectId, teamId: teamId);
 
-  Future<String?> shareWithUser(
-    int projectId,
-    int userId,
-    int permission,
-  ) async {
-    if (offline) return offlineEditError;
-    try {
-      await api?.addProjectUser(projectId, userId, permission);
-      notifyListeners();
-      return null;
-    } on VikunjaException catch (e) {
-      return e.message;
-    }
-  }
+  Future<String?> shareWithUser(int projectId, int userId, int permission) =>
+      addUserShare(projectId, userId, permission);
 
   Future<String?> setUserShare(
     int projectId,
@@ -1338,30 +1798,56 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     } on VikunjaException catch (e) {
-      return e.message;
+      return _failure(e);
     }
   }
 
-  Future<String?> unshareUser(int projectId, int userId) async {
-    if (offline) return offlineEditError;
-    try {
-      await api?.removeProjectUser(projectId, userId);
-      notifyListeners();
-      return null;
-    } on VikunjaException catch (e) {
-      return e.message;
-    }
-  }
+  Future<String?> unshareUser(int projectId, int userId) =>
+      removeShare(projectId, userId: userId);
+}
+
+/// Who one project is shared with: user shares, team shares, link shares and
+/// the server's public link base. AppState owns the loaded copy so every widget
+/// reads the same data instead of the screen keeping its own snapshot.
+@immutable
+class ProjectShares {
+  const ProjectShares({
+    this.users = const [],
+    this.teams = const [],
+    this.links = const [],
+    this.frontendUrl,
+  });
+
+  final List<VikunjaProjectShare> users;
+  final List<VikunjaProjectShare> teams;
+  final List<VikunjaLinkShare> links;
+  final String? frontendUrl;
+
+  static const empty = ProjectShares();
 }
 
 /// Inherited access to the single [AppState] instance.
+///
+/// One notifier carries tasks, theme, session and offline flags on purpose:
+/// splitting it per concern would touch 39 call sites and every screen, and the
+/// app shell already avoids the worst of it via [AppState.shell]. Use [read]
+/// anywhere the value is not painted (callbacks, one-shot lookups) so those
+/// widgets stop rebuilding on every notification.
 class AppScope extends InheritedNotifier<AppState> {
   const AppScope({super.key, required AppState state, required super.child})
     : super(notifier: state);
 
+  /// Listens: the calling widget rebuilds on every notification.
   static AppState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     assert(scope != null, 'AppScope is missing above this widget');
     return scope!.notifier!;
+  }
+
+  /// Does not listen: for `onTap` handlers, `initState` and one-shot reads.
+  static AppState read(BuildContext context) {
+    final element = context.getElementForInheritedWidgetOfExactType<AppScope>();
+    assert(element != null, 'AppScope is missing above this widget');
+    return (element!.widget as AppScope).notifier!;
   }
 }
