@@ -38,3 +38,6 @@ linux/flutter/ephemeral/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local dev env (this machine only)
+.pi-env.sh

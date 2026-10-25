@@ -18,6 +18,9 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      # Release builds only inherit permissions from the main manifest, so a
+      # missing INTERNET entry there ships an APK that cannot reach any server.
+      - run: grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
       # Info-level lints (deprecations, null-aware suggestions) do not fail a
       # build; warnings and errors do.
       - run: flutter analyze --no-fatal-infos
@@ -43,6 +46,10 @@ jobs:
       # Signed with the debug key, same as a local `flutter build apk --release`,
       # so the artifacts install without extra setup.
       - run: flutter build apk --release --split-per-abi
+      - name: Check the release APK can use the network
+        run: |
+          aapt2 dump permissions build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            | grep -q 'android.permission.INTERNET'
       - uses: actions/upload-artifact@v4
         with:
           name: sloth-apk-${{ github.sha }}
