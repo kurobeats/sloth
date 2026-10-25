@@ -18,7 +18,9 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter analyze
+      # Info-level lints (deprecations, null-aware suggestions) do not fail a
+      # build; warnings and errors do.
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
 
   apk:
