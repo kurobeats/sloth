@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/kurobeats/sloth/releases/latest">Download</a> ·
+  <a href="#install-and-keep-it-updated-with-obtainium">Install</a> ·
   <a href="#screenshots">Screenshots</a> ·
   <a href="#features">Features</a> ·
   <a href="#themes">Themes</a> ·
