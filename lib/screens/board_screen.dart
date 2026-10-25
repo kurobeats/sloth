@@ -109,6 +109,14 @@ class _BoardScreenState extends State<BoardScreen> {
   }
 }
 
+/// Wide enough to read a card, narrow enough to show the next column peeking
+/// in on a phone. Landscape and tablets fit three columns instead of one and a
+/// bit.
+double _columnWidth(double screen) {
+  if (screen >= 660) return ((screen - 40) / 3).clamp(200.0, 300.0);
+  return (screen * 0.78).clamp(220.0, 300.0);
+}
+
 class _Column extends StatelessWidget {
   const _Column({
     required this.bucket,
@@ -126,9 +134,7 @@ class _Column extends StatelessWidget {
     return DragTarget<int>(
       onAcceptWithDetails: (details) => onDrop(details.data),
       builder: (context, candidate, rejected) => Container(
-        // Wide enough to read a card, narrow enough to show the next column
-        // peeking in on a phone.
-        width: (MediaQuery.sizeOf(context).width * 0.78).clamp(220.0, 300.0),
+        width: _columnWidth(MediaQuery.sizeOf(context).width),
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: candidate.isEmpty ? c.secondaryBackground : c.hover,

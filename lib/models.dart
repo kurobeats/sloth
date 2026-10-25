@@ -422,8 +422,8 @@ class VikunjaTask {
         .toList(),
   );
 
-  /// Body for POST /tasks/{id}: the server treats absent fields as unchanged,
-  /// but nested collections are replaced wholesale when present.
+  /// Body for POST /tasks/{id}. The server replaces the task wholesale, so
+  /// every stored field has to be sent — an omitted due_date is cleared.
   Map<String, dynamic> toJson() => {
     'id': id,
     'project_id': projectId,
