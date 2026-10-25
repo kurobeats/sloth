@@ -179,76 +179,83 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               children: [
                 OfflineBanner(onRetry: state.refresh),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                    children: [
-                      _TitleRow(
-                        task: task,
-                        controller: _title,
-                        onToggleDone: () =>
-                            _set(state, task, (t) => t.done = !t.done),
-                      ),
-                      const SizedBox(height: 8),
-                      _NotesField(
-                        controller: _notes,
-                        open: _notesOpen,
-                        onOpen: () => setState(() => _notesOpen = true),
-                      ),
-                      const Divider(height: 24),
-                      _MetaRows(
-                        task: task,
-                        projectTitle:
-                            state.projectOf(task)?.title ?? task.identifier,
-                        onDue: () => _pickDate(state, task),
-                        onDueClear: task.dueDate == null
-                            ? null
-                            : () => _set(state, task, (t) => t.dueDate = null),
-                        onReminders: () => _pickReminder(state, task),
-                        onRemindersClear: task.reminders.isEmpty
-                            ? null
-                            : () => _set(
-                                state,
-                                task,
-                                (t) => t.reminders = const [],
-                              ),
-                        onRepeat: () => _pickRepeat(state, task),
-                        onRepeatClear: task.repeatAfter == 0
-                            ? null
-                            : () => _set(state, task, (t) => t.repeatAfter = 0),
-                        onPriority: () => _pickPriority(state, task),
-                        onPriorityClear: task.priority == 0
-                            ? null
-                            : () => _set(state, task, (t) => t.priority = 0),
-                        onLabels: () async {
-                          await showLabelPicker(context, state, task);
-                          await state.loadTask(task.id);
-                        },
-                      ),
-                      _LabelChips(labels: task.labels),
-                      AssigneesSection(task: task, onChanged: _reload),
-                      RelationsSection(task: task, onChanged: _reload),
-                      AttachmentsSection(taskId: task.id),
-                      CommentsSection(taskId: task.id),
-                      const SizedBox(height: 24),
-                      const Divider(height: 1),
-                      _FooterRow(
-                        created: task.created,
-                        onDelete: () => _delete(state, task),
-                      ),
-                      if (_loading)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Center(
-                            child: Text(
-                              'Syncing…',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: c.secondaryText,
+                  // The comments box is the last row, so the body has to give
+                  // back the gesture-bar inset or it renders underneath it.
+                  child: SafeArea(
+                    top: false,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                      children: [
+                        _TitleRow(
+                          task: task,
+                          controller: _title,
+                          onToggleDone: () =>
+                              _set(state, task, (t) => t.done = !t.done),
+                        ),
+                        const SizedBox(height: 8),
+                        _NotesField(
+                          controller: _notes,
+                          open: _notesOpen,
+                          onOpen: () => setState(() => _notesOpen = true),
+                        ),
+                        const Divider(height: 24),
+                        _MetaRows(
+                          task: task,
+                          projectTitle:
+                              state.projectOf(task)?.title ?? task.identifier,
+                          onDue: () => _pickDate(state, task),
+                          onDueClear: task.dueDate == null
+                              ? null
+                              : () =>
+                                    _set(state, task, (t) => t.dueDate = null),
+                          onReminders: () => _pickReminder(state, task),
+                          onRemindersClear: task.reminders.isEmpty
+                              ? null
+                              : () => _set(
+                                  state,
+                                  task,
+                                  (t) => t.reminders = const [],
+                                ),
+                          onRepeat: () => _pickRepeat(state, task),
+                          onRepeatClear: task.repeatAfter == 0
+                              ? null
+                              : () =>
+                                    _set(state, task, (t) => t.repeatAfter = 0),
+                          onPriority: () => _pickPriority(state, task),
+                          onPriorityClear: task.priority == 0
+                              ? null
+                              : () => _set(state, task, (t) => t.priority = 0),
+                          onLabels: () async {
+                            await showLabelPicker(context, state, task);
+                            await state.loadTask(task.id);
+                          },
+                        ),
+                        _LabelChips(labels: task.labels),
+                        AssigneesSection(task: task, onChanged: _reload),
+                        RelationsSection(task: task, onChanged: _reload),
+                        AttachmentsSection(taskId: task.id),
+                        CommentsSection(taskId: task.id),
+                        const SizedBox(height: 24),
+                        const Divider(height: 1),
+                        _FooterRow(
+                          created: task.created,
+                          onDelete: () => _delete(state, task),
+                        ),
+                        if (_loading)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Center(
+                              child: Text(
+                                'Syncing…',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: c.secondaryText,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],

@@ -1,11 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:sloth/api.dart';
 import 'package:sloth/models.dart';
 import 'package:sloth/screens/account_settings_screen.dart';
 import 'package:sloth/screens/board_screen.dart';
 import 'package:sloth/screens/notifications_screen.dart';
 import 'package:sloth/screens/search_screen.dart';
 import 'package:sloth/screens/settings_screen.dart';
+import 'package:sloth/screens/task_detail_screen.dart';
 import 'package:sloth/screens/team_detail_screen.dart';
 import 'package:sloth/screens/teams_screen.dart';
 import 'package:sloth/state.dart';
@@ -90,4 +96,41 @@ void main() {
       );
     });
   }
+
+  // The comment box is the last thing on this screen. Without a bottom inset it
+  // renders under the gesture bar, where neither the field nor its send button
+  // can be tapped — the task detail screen has no project list of its own, so it
+  // was missed when the others got their inset.
+  testWidgets('task detail keeps its comment box above the gesture bar', (
+    tester,
+  ) async {
+    gestureBarView(tester);
+    final state = AppState();
+    state.api = VikunjaApi(
+      baseUrl: 'https://tasks.example.com',
+      client: MockClient((request) async {
+        final path = request.url.path;
+        if (path.endsWith('/user')) {
+          return http.Response('{"id":1,"username":"me"}', 200);
+        }
+        if (path.endsWith('/tasks/1')) {
+          return http.Response(
+            jsonEncode({'id': 1, 'project_id': 1, 'title': 'Fix bike'}),
+            200,
+          );
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+    await tester.pumpWidget(host(state, const TaskDetailScreen(taskId: 1)));
+    await tester.pumpAndSettle();
+
+    final list = find.byType(ListView);
+    expect(list, findsWidgets, reason: 'the detail body is on screen');
+    expect(
+      MediaQuery.paddingOf(tester.element(list.first)).bottom,
+      0,
+      reason: 'the body must consume the bottom inset itself',
+    );
+  });
 }
