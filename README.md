@@ -174,6 +174,19 @@ flutter build apk --release --split-per-abi
 adb install build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 ```
 
+### Install and keep it updated with Obtainium
+
+[Obtainium](https://github.com/ImranR98/Obtainium) installs apps straight from a
+project's GitHub releases and updates them when a new tag appears, which suits a
+self-hosted tool like this one.
+
+1. Install Obtainium (its own releases page has the APK).
+2. **Add App**, paste `https://github.com/kurobeats/sloth`, tap **Add**.
+3. Let it use the latest release; when it asks which file to install, the
+   arm64-v8a APK is right for modern phones.
+4. From then on, update from inside Obtainium — Sloth has no store entry and no
+   update check of its own.
+
 Release APKs are signed with the debug key, here and in CI, so they install
 straight away. That is fine for a self-hosted app you build for yourself; it is
 not a Play Store key.
