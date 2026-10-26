@@ -42,6 +42,11 @@ create here, no analytics, and no Sloth service in the middle.
 </p>
 
 <p align="center">
+  <img src="docs/screenshots/sort-menu.png" width="270" alt="Overflow menu: sort by due date or A→Z">
+  <img src="docs/screenshots/about.png" width="270" alt="About box with version and repository link">
+</p>
+
+<p align="center">
   <img src="docs/screenshots/kanban.png" width="760" alt="Kanban board in landscape">
 </p>
 
