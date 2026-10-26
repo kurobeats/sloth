@@ -14,6 +14,7 @@ class EntryBar extends StatefulWidget {
     this.enabled = true,
     this.disabledHint,
     this.onDraftChanged,
+    this.onDraftLeave,
   });
 
   /// Resolves to true when the task reached the server. The bar clears the draft
@@ -27,6 +28,10 @@ class EntryBar extends StatefulWidget {
   /// Told when the bar holds a draft, so the screen's own back handling can let
   /// the draft guard ask first.
   final ValueChanged<bool>? onDraftChanged;
+
+  /// Leaves the screen after the user discards a draft; the list screen uses it
+  /// to go back to Due Today rather than out of the app.
+  final Future<void> Function()? onDraftLeave;
 
   @override
   State<EntryBar> createState() => _EntryBarState();
@@ -148,6 +153,9 @@ class _EntryBarState extends State<EntryBar> {
     return UnsavedChangesGuard(
       dirty: _hasText,
       message: 'The task you typed has not been added yet.',
+      // Discarding means the text is gone, not carried to the next list.
+      onDiscard: _controller.clear,
+      onLeave: widget.onDraftLeave,
       child: bar,
     );
   }

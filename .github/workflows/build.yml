@@ -49,8 +49,15 @@ jobs:
           cache: true
       - run: flutter pub get
       # Signed with the committed keystore, so releases keep one identity and
-      # install over each other.
-      - run: flutter build apk --release --split-per-abi
+      # install over each other. The About box reads the installed version, so a
+      # tagged build has to report the tag, not whatever pubspec.yaml says.
+      - name: Build release APKs
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            flutter build apk --release --split-per-abi --build-name="${GITHUB_REF_NAME#v}"
+          else
+            flutter build apk --release --split-per-abi
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: sloth-apk-${{ github.sha }}

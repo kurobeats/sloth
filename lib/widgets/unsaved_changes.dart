@@ -20,6 +20,7 @@ class UnsavedChangesGuard extends StatefulWidget {
     required this.child,
     this.message = 'Your changes have not been saved yet.',
     this.onDiscard,
+    this.onLeave,
   });
 
   final bool dirty;
@@ -31,6 +32,11 @@ class UnsavedChangesGuard extends StatefulWidget {
   /// it instead.
   final VoidCallback? onDiscard;
 
+  /// Takes over leaving the root route: the list screen turns a discarded draft
+  /// into "back to Due Today", the way a plain back press does. Without it the
+  /// root route closes the app.
+  final Future<void> Function()? onLeave;
+
   @override
   State<UnsavedChangesGuard> createState() => _UnsavedChangesGuardState();
 }
@@ -39,6 +45,10 @@ class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
   /// Already asked once and the user chose to stay: the next back press
   /// confirms, so nobody is trapped behind a dialog they keep dismissing.
   bool _warned = false;
+
+  /// Set while the leave is under way: asking the route to pop re-enters this
+  /// guard's callback, which must not ask again.
+  bool _leaving = false;
 
   Future<void> _onBack() async {
     if (_warned) {
@@ -68,14 +78,19 @@ class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
   }
 
   Future<void> _leave() async {
+    if (_leaving) return;
+    _leaving = true;
     widget.onDiscard?.call();
     final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
+    if (widget.onLeave != null) {
+      await widget.onLeave!();
+    } else if (navigator.canPop()) {
       navigator.pop();
     } else {
       // The list screen is the root route: back there closes the app.
       await SystemNavigator.pop();
     }
+    _leaving = false;
   }
 
   @override
@@ -85,7 +100,7 @@ class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
       onPopInvokedWithResult: (didPop, _) {
         // A route refuses a pop as a whole: another guard on the same route can
         // be the one saying no, and a clean bar has nothing to ask about.
-        if (didPop || !widget.dirty) return;
+        if (didPop || _leaving || !widget.dirty) return;
         _onBack();
       },
       child: widget.child,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models.dart';
 import '../state.dart';
@@ -172,6 +173,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Back from the list screen: close the drawer, let a draft ask first, and
+  /// otherwise return to the list the session started on. Only there does back
+  /// close the app.
+  Future<void> _leaveList(AppState state) async {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && scaffold.isDrawerOpen) {
+      scaffold.closeDrawer();
+      return;
+    }
+    if (state.selection.smart == SmartList.dueToday) {
+      await SystemNavigator.pop();
+      return;
+    }
+    await state.select(const ListSelection.smart(SmartList.dueToday));
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -185,16 +202,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return PopScope(
       canPop: atStart,
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        final scaffold = _scaffoldKey.currentState;
-        // The drawer opens a local history entry of its own; leaving it open
-        // while the list changes underneath would be worse than closing it.
-        if (scaffold != null && scaffold.isDrawerOpen) {
-          scaffold.closeDrawer();
-          return;
-        }
-        if (_draftDirty) return;
-        await state.select(const ListSelection.smart(SmartList.dueToday));
+        // A dirty bar refuses the pop too, and its guard asks the question.
+        if (didPop || _draftDirty) return;
+        await _leaveList(state);
       },
       child: _buildScaffold(context, state, open, completed, c, atStart),
     );
@@ -309,6 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
           EntryBar(
             onSubmit: _add,
             onDraftChanged: (dirty) => _draftDirty = dirty,
+            onDraftLeave: () => _leaveList(state),
             enabled: state.canEdit,
             disabledHint: 'Editing is disabled while offline',
           ),

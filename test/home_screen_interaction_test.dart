@@ -222,4 +222,32 @@ void main() {
       reason: 'the list the session started on, instead of leaving the app',
     );
   });
+
+  testWidgets('discarding a draft away from Due Today lands on Due Today', (
+    tester,
+  ) async {
+    final server = HomeServer(tasks: [taskJson(1, 'Fix bike')]);
+    final state = await server.state();
+    await tester.pumpWidget(host(state));
+    await tester.pump();
+
+    await state.select(const ListSelection.smart(SmartList.allTasks));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Buy milk');
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Due Today'),
+      findsOneWidget,
+      reason: 'discarding the draft returns to the start list, not out of the app',
+    );
+    expect(find.text('Buy milk'), findsNothing, reason: 'the draft is gone');
+  });
 }
