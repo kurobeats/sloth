@@ -200,4 +200,26 @@ void main() {
       reason: 'the drawer closed and the account screen opened',
     );
   });
+
+  testWidgets('system back from another list returns to Due Today', (
+    tester,
+  ) async {
+    final server = HomeServer(tasks: [taskJson(1, 'Fix bike')]);
+    final state = await server.state();
+    await tester.pumpWidget(host(state));
+    await tester.pump();
+
+    await state.select(const ListSelection.smart(SmartList.allTasks));
+    await tester.pump();
+    expect(find.text('All Tasks'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Due Today'),
+      findsOneWidget,
+      reason: 'the list the session started on, instead of leaving the app',
+    );
+  });
 }

@@ -13,6 +13,7 @@ class EntryBar extends StatefulWidget {
     this.hint = 'Add a new task…',
     this.enabled = true,
     this.disabledHint,
+    this.onDraftChanged,
   });
 
   /// Resolves to true when the task reached the server. The bar clears the draft
@@ -22,6 +23,10 @@ class EntryBar extends StatefulWidget {
   final String hint;
   final bool enabled;
   final String? disabledHint;
+
+  /// Told when the bar holds a draft, so the screen's own back handling can let
+  /// the draft guard ask first.
+  final ValueChanged<bool>? onDraftChanged;
 
   @override
   State<EntryBar> createState() => _EntryBarState();
@@ -45,6 +50,7 @@ class _EntryBarState extends State<EntryBar> {
     final hasText = _controller.text.trim().isNotEmpty;
     if (hasText == _hasText) return;
     _hasText = hasText;
+    widget.onDraftChanged?.call(hasText);
     if (mounted) setState(() {});
   }
 

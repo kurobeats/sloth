@@ -83,7 +83,9 @@ class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
     return PopScope(
       canPop: !widget.dirty,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
+        // A route refuses a pop as a whole: another guard on the same route can
+        // be the one saying no, and a clean bar has nothing to ask about.
+        if (didPop || !widget.dirty) return;
         _onBack();
       },
       child: widget.child,

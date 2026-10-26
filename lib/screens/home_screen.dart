@@ -27,6 +27,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Whether the add-a-task bar holds a draft, whose own guard asks before a
+  /// back press leaves the app.
+  bool _draftDirty = false;
   bool _showCompleted = false;
   final _scroll = ScrollController();
 
@@ -174,7 +178,36 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = TodoColors.of(context);
     final open = state.openTasks;
     final completed = state.completedTasks;
+    // Due Today is where a session starts, so back there closes the app; back
+    // from any other list returns to it instead of dropping the user out.
+    final atStart = state.selection.smart == SmartList.dueToday;
 
+    return PopScope(
+      canPop: atStart,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final scaffold = _scaffoldKey.currentState;
+        // The drawer opens a local history entry of its own; leaving it open
+        // while the list changes underneath would be worse than closing it.
+        if (scaffold != null && scaffold.isDrawerOpen) {
+          scaffold.closeDrawer();
+          return;
+        }
+        if (_draftDirty) return;
+        await state.select(const ListSelection.smart(SmartList.dueToday));
+      },
+      child: _buildScaffold(context, state, open, completed, c, atStart),
+    );
+  }
+
+  Widget _buildScaffold(
+    BuildContext context,
+    AppState state,
+    List<VikunjaTask> open,
+    List<VikunjaTask> completed,
+    TodoColors c,
+    bool atStart,
+  ) {
     return Scaffold(
       key: _scaffoldKey,
       drawer: _Drawer(
@@ -275,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           EntryBar(
             onSubmit: _add,
+            onDraftChanged: (dirty) => _draftDirty = dirty,
             enabled: state.canEdit,
             disabledHint: 'Editing is disabled while offline',
           ),

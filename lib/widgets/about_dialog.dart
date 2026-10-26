@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../todo_theme.dart';
 
 // Keep in sync with pubspec.yaml `version`.
-const appVersion = '0.1.5+8';
+const appVersion = '0.1.6+9';
 
 const repoUrl = 'https://github.com/kurobeats/sloth';
 
