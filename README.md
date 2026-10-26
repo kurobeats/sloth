@@ -77,6 +77,13 @@ straight to your clipboard.
 **Find things.** Search across tasks; saved filters from Vikunja appear in the
 drawer as read-only lists.
 
+**Order it your way.** Projects list alphabetically (A→Z, numbers compared as
+numbers, so Johnny.Decimal prefixes like `1.2` sit before `1.10`). The overflow
+menu switches the task list between due date and A→Z; the choice is remembered.
+
+**About.** The overflow menu has an About box with the app version and a link
+to this repository.
+
 Wording follows Vikunja's own interface, so "Labels", "Upcoming" and "Due Today"
 mean the same thing here as they do in the web UI.
 

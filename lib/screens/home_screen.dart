@@ -5,9 +5,11 @@ import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
 import '../widgets/entry_bar.dart';
+import '../widgets/about_dialog.dart';
 import '../widgets/offline_banner.dart';
 import '../widgets/task_tile.dart';
 import 'labels_screen.dart';
+import 'account_settings_screen.dart';
 import 'project_settings_screen.dart';
 import 'board_screen.dart';
 import 'notifications_screen.dart';
@@ -222,6 +224,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   await Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const SettingsScreen()),
                   );
+                case 'sort_due':
+                  await state.setSortMode(SortMode.dueDate);
+                case 'sort_az':
+                  await state.setSortMode(SortMode.alphabetical);
+                case 'about':
+                  await showDialog<void>(
+                    context: context,
+                    builder: (_) => const SlothAboutDialog(),
+                  );
                 case 'signout':
                   await state.signOut();
               }
@@ -233,7 +244,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   value: 'project',
                   child: Text('Project settings'),
                 ),
+              CheckedPopupMenuItem(
+                value: 'sort_due',
+                checked: state.sortMode == SortMode.dueDate,
+                child: const Text('Sort: due date'),
+              ),
+              CheckedPopupMenuItem(
+                value: 'sort_az',
+                checked: state.sortMode == SortMode.alphabetical,
+                child: const Text('Sort: A→Z'),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(value: 'appearance', child: Text('Settings')),
+              const PopupMenuItem(value: 'about', child: Text('About')),
               const PopupMenuItem(value: 'signout', child: Text('Logout')),
             ],
           ),
@@ -713,43 +736,60 @@ class _DrawerHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 16, 8, 12),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: c.accent,
-            foregroundImage: state.avatar == null
-                ? null
-                : MemoryImage(state.avatar!),
-            child: Text(
-              user?.initials ?? '?',
-              style: TextStyle(color: c.onAccent, fontSize: 14),
-            ),
-          ),
-          const SizedBox(width: 12),
+          // Tapping the avatar or name opens Account settings.
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user?.displayName ?? '',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: TodoText.big,
-                    fontWeight: FontWeight.w600,
-                    color: c.primaryText,
+            child: InkWell(
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AccountSettingsScreen(),
                   ),
-                ),
-                if (user?.email != null)
-                  Text(
-                    user!.email!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: TodoText.s,
-                      color: c.secondaryText,
+                );
+              },
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: c.accent,
+                    foregroundImage: state.avatar == null
+                        ? null
+                        : MemoryImage(state.avatar!),
+                    child: Text(
+                      user?.initials ?? '?',
+                      style: TextStyle(color: c.onAccent, fontSize: 14),
                     ),
                   ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user?.displayName ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: TodoText.big,
+                            fontWeight: FontWeight.w600,
+                            color: c.primaryText,
+                          ),
+                        ),
+                        if (user?.email != null)
+                          Text(
+                            user!.email!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: TodoText.s,
+                              color: c.secondaryText,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           IconButton(

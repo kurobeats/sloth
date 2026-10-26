@@ -28,6 +28,39 @@ enum SmartList {
   final String label;
 }
 
+/// Task-list order, chosen in the home screen overflow menu.
+enum SortMode { dueDate, alphabetical }
+
+/// Natural A→Z compare: case-insensitive, digit runs compared numerically so
+/// Johnny.Decimal prefixes ("1.2", "1.10", "11") sort correctly.
+int compareNatural(String a, String b) {
+  int i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    final ca = a[i], cb = b[j];
+    final da = _isDigit(ca), db = _isDigit(cb);
+    if (da && db) {
+      int sa = i, sb = j;
+      while (i < a.length && _isDigit(a[i])) {
+        i++;
+      }
+      while (j < b.length && _isDigit(b[j])) {
+        j++;
+      }
+      final na = int.tryParse(a.substring(sa, i));
+      final nb = int.tryParse(b.substring(sb, j));
+      if (na != nb) return (na ?? 0).compareTo(nb ?? 0);
+    } else {
+      final cmp = ca.toLowerCase().compareTo(cb.toLowerCase());
+      if (cmp != 0) return cmp;
+      i++;
+      j++;
+    }
+  }
+  return (a.length - i).compareTo(b.length - j);
+}
+
+bool _isDigit(String ch) => ch.codeUnitAt(0) >= 0x30 && ch.codeUnitAt(0) <= 0x39;
+
 /// What the task list is currently showing: a smart list, a project, or a tag.
 class ListSelection {
   const ListSelection.smart(this.smart) : project = null, tag = null;
@@ -122,6 +155,7 @@ class AppState extends ChangeNotifier {
   static const _kLightTheme = 'theme_light';
   static const _kDarkTheme = 'theme_dark';
   static const _kThemeMode = 'theme_mode';
+  static const _kSortMode = 'sort_mode';
 
   final FlutterSecureStorage _storage;
 
@@ -160,6 +194,9 @@ class AppState extends ChangeNotifier {
 
   OfflineCache? _cache;
   bool allowSelfSigned = false;
+
+  /// How the task list is ordered; the projects list is always A→Z.
+  SortMode sortMode = SortMode.dueDate;
 
   List<VikunjaProject> projects = const [];
   List<VikunjaLabel> labels = const [];
@@ -244,6 +281,7 @@ class AppState extends ChangeNotifier {
         _storage.read(key: _kDarkTheme),
         _storage.read(key: _kThemeMode),
         _storage.read(key: _kAllowSelfSigned),
+        _storage.read(key: _kSortMode),
       ]);
       lightThemeId = saved[0] ?? TodoColors.defaultLight.id;
       darkThemeId = saved[1] ?? TodoColors.defaultDark.id;
@@ -254,6 +292,9 @@ class AppState extends ChangeNotifier {
       };
       // Remembered per server, so the login form can prefill the box.
       allowSelfSigned = saved[3] == 'true';
+      sortMode = saved[4] == 'alphabetical'
+          ? SortMode.alphabetical
+          : SortMode.dueDate;
     } catch (_) {
       // Storage unavailable: fall back to the defaults above.
     }
@@ -273,6 +314,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     await _storage.write(key: _kDarkTheme, value: id);
     unawaited(syncHomeWidget(this));
+  }
+
+  Future<void> setSortMode(SortMode mode) async {
+    if (mode == sortMode) return;
+    sortMode = mode;
+    notifyListeners();
+    await _storage.write(
+      key: _kSortMode,
+      value: mode == SortMode.alphabetical ? 'alphabetical' : 'due_date',
+    );
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -680,7 +731,7 @@ class AppState extends ChangeNotifier {
     final list = _source
         .where((t) => !t.done && _matchesList(t, today, tomorrow))
         .toList();
-    list.sort(_compare);
+    list.sort(_taskCompare);
     return list;
   }
 
@@ -742,12 +793,13 @@ class AppState extends ChangeNotifier {
   List<VikunjaProject> get savedFilters =>
       projects.where((p) => p.id < 0).toList();
 
-  /// Vikunja pins favorite projects above the rest.
+  /// Vikunja pins favorite projects above the rest; the rest sort A→Z by
+  /// title (natural order, so Johnny.Decimal prefixes like 1.2 < 1.10).
   List<VikunjaProject> get sortedProjects {
     final list = [...writableProjects];
     list.sort((a, b) {
       if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
-      return a.position.compareTo(b.position);
+      return compareNatural(a.title, b.title);
     });
     return list;
   }
@@ -758,6 +810,11 @@ class AppState extends ChangeNotifier {
   int countForTag(VikunjaLabel tag) => _allTasks
       .where((t) => !t.done && t.labels.any((l) => l.id == tag.id))
       .length;
+
+  /// Inside a list, tasks sort A→Z when the user picks it, otherwise by
+  /// due date.
+  Comparator<VikunjaTask> get _taskCompare =>
+      sortMode == SortMode.alphabetical ? _byTitle : _compare;
 
   static int _compare(VikunjaTask a, VikunjaTask b) {
     if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
@@ -771,6 +828,11 @@ class AppState extends ChangeNotifier {
       return 1;
     }
     return b.id.compareTo(a.id);
+  }
+
+  static int _byTitle(VikunjaTask a, VikunjaTask b) {
+    if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
+    return compareNatural(a.title, b.title);
   }
 
   /// Projects by id. `projectOf` runs once per task tile, so it reads this

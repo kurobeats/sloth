@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sloth/api.dart';
 import 'package:sloth/models.dart';
+import 'package:sloth/screens/account_settings_screen.dart';
 import 'package:sloth/screens/home_screen.dart';
 import 'package:sloth/screens/task_detail_screen.dart';
 import 'package:sloth/state.dart';
@@ -175,6 +176,28 @@ void main() {
       find.text('Set Description'),
       findsOneWidget,
       reason: 'the detail screen is showing the task it was opened for',
+    );
+  });
+
+  testWidgets('tapping the drawer name or avatar opens account settings', (
+    tester,
+  ) async {
+    final server = HomeServer(tasks: [taskJson(1, 'Fix bike')]);
+    final state = await server.state();
+    await tester.pumpWidget(host(state));
+    await tester.pump();
+
+    tester.state<ScaffoldState>(find.byType(Scaffold).first).openDrawer();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('me'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AccountSettingsScreen), findsOneWidget);
+    expect(
+      find.text('Account settings'),
+      findsOneWidget,
+      reason: 'the drawer closed and the account screen opened',
     );
   });
 }
