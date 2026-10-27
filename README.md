@@ -59,7 +59,8 @@ create here, no analytics, and no Sloth service in the middle.
   <img src="docs/screenshots/widget-light.png" width="360" alt="Home screen widget, light scheme">
 </p>
 
-Those two are the same widget with a different scheme picked in the app.
+Those two are the same widget with a different scheme picked in the app. The
+plus in the header opens the add-a-task bar, wherever you were in the app.
 
 ## What you can do
 
