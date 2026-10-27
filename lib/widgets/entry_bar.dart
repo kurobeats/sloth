@@ -34,10 +34,12 @@ class EntryBar extends StatefulWidget {
   final Future<void> Function()? onDraftLeave;
 
   @override
-  State<EntryBar> createState() => _EntryBarState();
+  State<EntryBar> createState() => EntryBarState();
 }
 
-class _EntryBarState extends State<EntryBar> {
+/// The state is public so the home screen can put the cursor in the bar when
+/// the widget's plus button asks for it.
+class EntryBarState extends State<EntryBar> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
   bool _busy = false;
@@ -57,6 +59,20 @@ class _EntryBarState extends State<EntryBar> {
     _hasText = hasText;
     widget.onDraftChanged?.call(hasText);
     if (mounted) setState(() {});
+  }
+
+  /// Puts the cursor in the bar, so typing can start without a tap. A disabled
+  /// bar (offline) has nothing to focus.
+  void focus() {
+    _focus.requestFocus();
+    // A widget tap wakes the app, and the keyboard request that focus sends is
+    // dropped while the window is still regaining focus. Asking again on the
+    // next frame is what actually brings the keyboard up (device: Nokia 7.2).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focus.unfocus();
+      _focus.requestFocus();
+    });
   }
 
   @override

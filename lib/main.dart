@@ -116,12 +116,26 @@ class SlothAppState extends State<SlothApp> with WidgetsBindingObserver {
     );
   }
 
-  /// Widget rows deep link to `sloth://task/<id>`; the header sends no task and
-  /// just opens the app. Wired to the widget-click stream and the launch
-  /// intent; tests drive it directly.
+  /// Widget rows deep link to `sloth://task/<id>`, the widget's plus button to
+  /// `sloth://new`, and the header sends no target and just opens the app.
+  /// Wired to the widget-click stream and the launch intent; tests drive it
+  /// directly.
   Future<void> openFromWidget(Uri? uri) async {
     final segments = uri?.pathSegments ?? const <String>[];
-    if (uri == null || uri.scheme != 'sloth' || uri.host != 'task') return;
+    if (uri == null || uri.scheme != 'sloth') return;
+    if (uri.host == 'new') {
+      if (!_state.isSignedIn) {
+        // Held like a task link: the plus tap started the app, so dropping it
+        // would lose the bar it asked for.
+        _pendingWidgetLink = uri;
+        await _state.ready;
+        if (!mounted || !_state.isSignedIn || _pendingWidgetLink != uri) return;
+        _pendingWidgetLink = null;
+      }
+      _state.newTaskRequests.value++;
+      return;
+    }
+    if (uri.host != 'task') return;
     // Task ids are positive row ids: 0 and negatives address no task.
     final id = int.tryParse(segments.isEmpty ? '' : segments.last);
     if (id == null || id <= 0) return;

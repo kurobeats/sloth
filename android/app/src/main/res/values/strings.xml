@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_description">Tasks due today or earlier</string>
+    <string name="widget_add_task">Add a task</string>
 </resources>

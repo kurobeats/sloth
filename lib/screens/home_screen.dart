@@ -28,6 +28,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _entryBar = GlobalKey<EntryBarState>();
+  late final AppState _state = AppScope.read(context);
 
   /// Whether the add-a-task bar holds a draft, whose own guard asks before a
   /// back press leaves the app.
@@ -35,8 +37,44 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showCompleted = false;
   final _scroll = ScrollController();
 
+  /// The last plus tap from the home widget that this screen acted on.
+  int _createRequests = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // A tap can arrive before this screen exists (the widget started the app),
+    // so the first frame checks what is already pending, not just later taps.
+    AppScope.read(context).newTaskRequests.addListener(_openCreate);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openCreate());
+  }
+
+  /// The home widget's plus button: show the add-a-task bar and put the cursor
+  /// in it. Anything pushed on top (a task, a board) goes first, otherwise the
+  /// focused bar is hidden behind it.
+  void _openCreate() {
+    if (!mounted) return;
+    final requests = _state.newTaskRequests.value;
+    if (requests == _createRequests) return;
+    _createRequests = requests;
+    // A task or board on top goes first, or the focused bar would be hidden
+    // behind it. The popped route hands focus back to this one as it goes, so
+    // the bar has to be asked once that transition has finished.
+    final covered = !(ModalRoute.of(context)?.isCurrent ?? true);
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    if (!covered) {
+      _entryBar.currentState?.focus();
+      return;
+    }
+    // shortcut: 350ms is the route transition; revisit if that changes.
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) _entryBar.currentState?.focus();
+    });
+  }
+
   @override
   void dispose() {
+    _state.newTaskRequests.removeListener(_openCreate);
     _scroll.dispose();
     super.dispose();
   }
@@ -317,6 +355,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           EntryBar(
+            key: _entryBar,
             onSubmit: _add,
             onDraftChanged: (dirty) => _draftDirty = dirty,
             onDraftLeave: () => _leaveList(state),

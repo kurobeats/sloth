@@ -48,6 +48,11 @@ class SlothWidgetProvider : HomeWidgetProvider() {
         views.setTextColor(R.id.widget_title, headerText)
         views.setTextColor(R.id.widget_count, headerText)
         views.setTextColor(R.id.widget_empty, mutedColour)
+        // The plus pill wears the card colour, so it takes the colour the card's
+        // own rows use - the pairing Google Calendar gets from colorPrimary and
+        // colorOnPrimary.
+        views.setInt(R.id.widget_add_pill, "setBackgroundResource", cardDrawable(scheme))
+        views.setInt(R.id.widget_add_icon, "setColorFilter", textColour)
 
         val rows = parseRows(data.getString("rows", null))
         val count = rows.size
@@ -58,6 +63,16 @@ class SlothWidgetProvider : HomeWidgetProvider() {
         views.setOnClickPendingIntent(
             R.id.widget_header,
             HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java),
+        )
+
+        // The plus opens the add-a-task bar: the app focuses it on `sloth://new`.
+        views.setOnClickPendingIntent(
+            R.id.widget_add,
+            HomeWidgetLaunchIntent.getActivity(
+                context,
+                MainActivity::class.java,
+                Uri.parse("sloth://new"),
+            ),
         )
 
         views.removeAllViews(R.id.widget_list)

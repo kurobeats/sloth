@@ -11,6 +11,7 @@ import 'package:sloth/models.dart';
 import 'package:sloth/notifications_service.dart';
 import 'package:sloth/screens/task_detail_screen.dart';
 import 'package:sloth/state.dart';
+import 'package:sloth/widgets/entry_bar.dart';
 
 /// Startup: what the widget deep link may open, what the poll waits for, and
 /// what the app tears down.
@@ -148,6 +149,55 @@ void main() {
       findsOneWidget,
       reason: 'the held link is delivered once the session is up',
     );
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('the widget plus button focuses the add-a-task bar', (
+    tester,
+  ) async {
+    final app = await pump(tester, state: ReadyState());
+    await tester.pump();
+
+    // Nothing on top yet, so the tap only has to put the cursor in the bar.
+    unawaited(app.openFromWidget(Uri.parse('sloth://new')));
+    await tester.pump();
+    await tester.pump();
+    // Focus lands on the frame after the request, so give it one.
+    await tester.pump();
+
+    final bar = tester.widget<TextField>(
+      find.descendant(
+        of: find.byType(EntryBar),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(bar.focusNode?.hasFocus, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a plus tap that starts the app still focuses the bar', (
+    tester,
+  ) async {
+    // The bar does not exist until the restore ends, so the request has to
+    // survive the wait like a task link does.
+    final state = SlowState();
+    final app = await pump(tester, state: state);
+    unawaited(app.openFromWidget(Uri.parse('sloth://new')));
+
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    final bar = tester.widget<TextField>(
+      find.descendant(
+        of: find.byType(EntryBar),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(bar.focusNode?.hasFocus, isTrue);
 
     await tester.pumpWidget(const SizedBox());
   });

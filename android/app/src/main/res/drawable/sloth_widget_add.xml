@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plus sign, same 24dp glyph Google Calendar's widget uses
+     (quantum_gm_ic_add_vd_theme_24). Tinted at runtime with the header's text
+     colour, which is what colorOnPrimary does there. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24.0"
+    android:viewportHeight="24.0">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M20,13h-7v7h-2v-7H4v-2h7V4h2v7h7v2z" />
+</vector>

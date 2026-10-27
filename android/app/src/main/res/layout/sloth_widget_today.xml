@@ -17,9 +17,9 @@
             android:gravity="center_vertical"
             android:background="#FF2A2A2A"
             android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp">
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
 
             <TextView
                 android:id="@+id/widget_title"
@@ -40,6 +40,38 @@
                 android:textSize="13sp"
                 android:textColor="#FFB0B0B0"
                 android:text="" />
+
+            <!-- Google Calendar puts its add button at the end of the widget
+                 header: a pill holding the plus, level with the title. Same
+                 sizes as theirs - 52x32dp pill, 48dp touch target - but the
+                 pill uses the card colour so it stands out from the accent
+                 header, and its corner radius clamps to a stadium shape. -->
+            <FrameLayout
+                android:id="@+id/widget_add"
+                android:layout_width="52dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="2dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/widget_add_task">
+
+                <FrameLayout
+                    android:id="@+id/widget_add_pill"
+                    android:layout_width="52dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/sloth_widget_card_mocha"
+                    android:importantForAccessibility="no">
+
+                    <ImageView
+                        android:id="@+id/widget_add_icon"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/sloth_widget_add"
+                        android:importantForAccessibility="no" />
+                </FrameLayout>
+            </FrameLayout>
         </LinearLayout>
 
         <LinearLayout

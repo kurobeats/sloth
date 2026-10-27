@@ -258,6 +258,10 @@ class AppState extends ChangeNotifier {
   /// refresh produces cost one comparison here instead of a whole-app rebuild.
   late final ValueNotifier<AppShell> shell = ValueNotifier(_shellConfig);
 
+  /// Bumped by the home widget's plus button. It counts rather than flags so a
+  /// second tap while the bar is already focused still does something.
+  final ValueNotifier<int> newTaskRequests = ValueNotifier(0);
+
   /// Set by [dispose]. A request that was in flight when the screen went away
   /// still completes, and notifying a disposed notifier throws.
   bool _disposed = false;
@@ -1085,6 +1089,7 @@ class AppState extends ChangeNotifier {
     // Nothing may be left waiting on a restore that will not finish.
     if (!_readyCompleter.isCompleted) _readyCompleter.complete();
     _cacheFlush?.cancel();
+    newTaskRequests.dispose();
     super.dispose();
   }
 
