@@ -125,6 +125,10 @@ secure store, and renews it on the next login. If you ever want to cut a device
 off, delete the token named **Sloth** in Vikunja under *Settings → API Tokens* —
 no password change needed.
 
+The login form works with Android autofill, so a password manager such as
+Bitwarden or Vaultwarden's companion fills the username and password, and is
+asked to save them once a login succeeds.
+
 Servers with a private certificate authority (Caddy's internal CA, for example)
 work too: tick **Allow self-signed certificate** on the login screen. Trust is
 remembered per server and applies to that host only. Plain `http://` is refused
