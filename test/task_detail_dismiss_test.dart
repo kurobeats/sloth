@@ -32,10 +32,12 @@ class _Host extends StatelessWidget {
 void main() {
   late int saves;
   late String? savedTitle;
+  late Map<String, dynamic>? savedBody;
 
   Future<AppState> state() async {
     saves = 0;
     savedTitle = null;
+    savedBody = null;
     final task = {'id': 1, 'project_id': 1, 'title': 'Original title'};
     final state = AppState();
     state.api = VikunjaApi(
@@ -44,7 +46,8 @@ void main() {
         final path = request.url.path;
         if (path.endsWith('/tasks/1') && request.method == 'POST') {
           saves++;
-          savedTitle = (jsonDecode(request.body) as Map)['title'] as String?;
+          savedBody = jsonDecode(request.body) as Map<String, dynamic>;
+          savedTitle = savedBody!['title'] as String?;
           return http.Response(request.body, 200);
         }
         if (path.endsWith('/tasks/1')) {
@@ -98,5 +101,36 @@ void main() {
       'Buy oat milk',
       reason: 'the pending edit is what gets sent',
     );
+  });
+
+  testWidgets('ticking the check leaves the screen, the way back does', (
+    tester,
+  ) async {
+    final appState = await state();
+    await tester.pumpWidget(
+      AppScope(
+        state: appState,
+        child: MaterialApp(
+          theme: buildTodoTheme(TodoColors.gruvboxLight),
+          home: const _Host(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open task'));
+    await tester.pumpAndSettle();
+
+    // A title is still inside the debounce: it must not be dropped on the way
+    // out, and it must not raise the discard dialog either.
+    await tester.enterText(find.byType(TextField).first, 'Buy oat milk');
+    await tester.pump();
+
+    await tester.tap(find.byType(AnimatedContainer).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TaskDetailScreen), findsNothing);
+    expect(find.text('open task'), findsOneWidget, reason: 'back where we came from');
+    expect(savedBody?['done'], isTrue, reason: 'the task is completed');
+    expect(savedTitle, 'Buy oat milk', reason: 'the typed title went with it');
   });
 }

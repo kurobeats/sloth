@@ -37,6 +37,7 @@
                 android:id="@+id/widget_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
                 android:textSize="13sp"
                 android:textColor="#FFB0B0B0"
                 android:text="" />

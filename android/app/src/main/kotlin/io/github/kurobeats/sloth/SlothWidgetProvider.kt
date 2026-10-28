@@ -10,14 +10,21 @@ import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 import org.json.JSONArray
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * "Due Today" widget: the same short list the app opens on, painted with the
  * colours of the scheme the app is using right now. Tapping a row opens that
  * task, tapping the header opens the app.
  *
- * Data comes from lib/home_widget_sync.dart, which writes it after every
- * refresh and every task change.
+ * Data comes from lib/home_widget_sync.dart, which writes the week of deadlines
+ * after every refresh and every task change. Which of those rows are due, and
+ * what they are labelled, is decided here: Android redraws the widget on its
+ * own updatePeriodMillis tick, so a task that falls due at midnight shows up
+ * without the app being opened.
  */
 class SlothWidgetProvider : HomeWidgetProvider() {
 
@@ -54,7 +61,13 @@ class SlothWidgetProvider : HomeWidgetProvider() {
         views.setInt(R.id.widget_add_pill, "setBackgroundResource", cardDrawable(scheme))
         views.setInt(R.id.widget_add_icon, "setColorFilter", textColour)
 
+        val now = System.currentTimeMillis()
+        // The snapshot reaches days ahead; the clock is what makes a row
+        // "due today". Five rows is all the card shows.
         val rows = parseRows(data.getString("rows", null))
+            .filter { it.due < endOfToday(now) }
+            .sortedBy { it.due }
+            .take(5)
         val count = rows.size
         views.setTextViewText(R.id.widget_count, if (count == 0) "" else count.toString())
         views.setViewVisibility(R.id.widget_empty, if (rows.isEmpty()) View.VISIBLE else View.GONE)
@@ -86,8 +99,11 @@ class SlothWidgetProvider : HomeWidgetProvider() {
                 R.id.row_tags,
                 if (row.tags.isEmpty()) View.GONE else View.VISIBLE,
             )
-            item.setTextViewText(R.id.row_meta, row.meta)
-            item.setTextColor(R.id.row_meta, if (row.overdue) accentColour else mutedColour)
+            item.setTextViewText(R.id.row_meta, dueLabel(row.due, now))
+            item.setTextColor(
+                R.id.row_meta,
+                if (row.due < startOfDay(now)) accentColour else mutedColour,
+            )
             item.setOnClickPendingIntent(
                 R.id.row_root,
                 HomeWidgetLaunchIntent.getActivity(
@@ -130,9 +146,8 @@ class SlothWidgetProvider : HomeWidgetProvider() {
     private data class Row(
         val id: Int,
         val title: String,
-        val meta: String,
         val tags: String,
-        val overdue: Boolean,
+        val due: Long,
     )
 
     private fun parseRows(raw: String?): List<Row> {
@@ -144,13 +159,51 @@ class SlothWidgetProvider : HomeWidgetProvider() {
                 Row(
                     id = json.optInt("id"),
                     title = json.optString("title"),
-                    meta = json.optString("meta"),
                     tags = json.optString("tags"),
-                    overdue = json.optBoolean("overdue"),
+                    due = json.optLong("due"),
                 )
             }
         } catch (_: Exception) {
             emptyList()
         }
     }
+
+    /// Vikunja's wording for the due date, the subset of `TodoFormat.dueLabel`
+    /// that survives the "due by today" filter: Today, Yesterday, then a date.
+    /// Only rows the app pushed can be dated here, and the app may be closed for
+    /// days, so the day has to be read on this side.
+    private fun dueLabel(due: Long, now: Long): String = when (dayNumber(due) - dayNumber(now)) {
+        0L -> "Today"
+        -1L -> "Yesterday"
+        else -> {
+            val pattern = if (yearOf(due) == yearOf(now)) "EEE d MMM" else "EEE d MMM y"
+            SimpleDateFormat(pattern, Locale.getDefault()).format(Date(due))
+        }
+    }
+
+    private fun calendarOf(ms: Long): Calendar =
+        Calendar.getInstance().apply { timeInMillis = ms }
+
+    /// A day ordinal from the local calendar date. Subtracting local midnights
+    /// would be off by an hour on a DST day, and by a whole day across one.
+    private fun dayNumber(ms: Long): Long {
+        val c = calendarOf(ms)
+        return c.get(Calendar.YEAR) * 372L +
+            c.get(Calendar.MONTH) * 31L +
+            c.get(Calendar.DAY_OF_MONTH)
+    }
+
+    private fun yearOf(ms: Long): Int = calendarOf(ms).get(Calendar.YEAR)
+
+    private fun startOfDay(ms: Long): Long = calendarOf(ms).apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    /// Midnight of tomorrow, exclusive: a task due at 23:59 today is still today.
+    private fun endOfToday(ms: Long): Long = calendarOf(startOfDay(ms)).apply {
+        add(Calendar.DAY_OF_MONTH, 1)
+    }.timeInMillis
 }

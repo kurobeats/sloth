@@ -94,7 +94,7 @@ void main() {
     );
   });
 
-  test('one definition of "due today or earlier" for list and widget', () async {
+  test('the widget snapshot is the due list plus the week after it', () async {
     final now = DateTime(2026, 10, 25, 9);
     final state = await stateWith([
       taskJson(1, title: 'Overdue', due: DateTime(2026, 10, 24)),
@@ -111,7 +111,11 @@ void main() {
         .toList();
 
     expect(smart, [1, 2]);
-    expect(rows, smart, reason: 'same fixture, same membership');
+    expect(
+      rows,
+      [1, 2, 3],
+      reason: 'the widget carries the days ahead so its own clock can decide',
+    );
   });
 
   test('the cut-off follows the injected clock', () async {

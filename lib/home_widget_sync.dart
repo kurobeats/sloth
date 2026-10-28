@@ -5,7 +5,6 @@ import 'package:home_widget/home_widget.dart';
 
 import 'models.dart';
 import 'state.dart';
-import 'todo_format.dart';
 import 'todo_theme.dart';
 
 /// Name of the Android provider, see `SlothWidgetProvider.kt`.
@@ -17,20 +16,20 @@ class HomeWidgetRow {
   const HomeWidgetRow({
     required this.id,
     required this.title,
-    required this.meta,
+    required this.due,
     required this.tags,
-    required this.overdue,
   });
 
   final int id;
   final String title;
 
-  /// "Today", "Yesterday", "Tomorrow" — Vikunja's own wording.
-  final String meta;
+  /// When the task is due. The provider works out "Today", "Yesterday" and
+  /// whether the row is overdue when it paints: a snapshot labelled today is
+  /// wrong tomorrow, and the app may not be opened for days.
+  final DateTime due;
 
   /// The task's labels, comma separated (Vikunja calls them labels).
   final String tags;
-  final bool overdue;
 }
 
 /// Longest title a row carries. The widget text sits on the lock screen, which
@@ -43,18 +42,34 @@ String _capped(String text) => text.length <= widgetTitleMaxLength
     ? text
     : '${text.substring(0, widgetTitleMaxLength)}…';
 
-/// The open tasks due today or earlier, newest deadline last, capped at five.
+/// How many days of deadlines the snapshot carries. The widget paints the tasks
+/// due by the end of *its* today, and Android redraws it from this snapshot on
+/// its own 30-minute tick, so the payload has to reach past today: this is how
+/// long the widget stays right when the app is never opened.
+const widgetHorizonDays = 7;
+
+/// Rows pushed for that window. The widget paints five; the surplus keeps a
+/// week-old snapshot correct as the earliest tasks get completed elsewhere.
+const widgetRowLimit = 20;
+
+/// The open tasks due inside [widgetHorizonDays], soonest first. Membership is
+/// deliberately wider than the widget's own five rows: what is "due today"
+/// depends on the day the widget paints, not on the day this ran.
 List<HomeWidgetRow> homeWidgetRows(List<VikunjaTask> tasks, {DateTime? now}) {
   final today = now ?? DateTime.now();
-  final due = dueBefore(tasks, endOfToday(today));
+  // Calendar arithmetic, not a Duration: a DST day is not 24 hours long.
+  final horizon = DateTime(
+    today.year,
+    today.month,
+    today.day + widgetHorizonDays + 1,
+  );
   return [
-    for (final task in due.take(5))
+    for (final task in dueBefore(tasks, horizon).take(widgetRowLimit))
       HomeWidgetRow(
         id: task.id,
         title: _capped(task.title),
-        meta: TodoFormat.dueLabel(task.dueDate!, now: today),
+        due: task.dueDate!,
         tags: _capped(task.labels.map((l) => l.title).join(', ')),
-        overdue: task.dueDate!.isBefore(startOfDay(today)),
       ),
   ];
 }
@@ -64,9 +79,9 @@ String encodeHomeWidgetRows(List<HomeWidgetRow> rows) => jsonEncode([
     {
       'id': row.id,
       'title': row.title,
-      'meta': row.meta,
+      // Epoch millis: the provider compares and formats it in local time.
+      'due': row.due.millisecondsSinceEpoch,
       'tags': row.tags,
-      'overdue': row.overdue,
     },
 ]);
 
@@ -96,15 +111,12 @@ Future<void> syncHomeWidget(AppState state) async {
     final colours = homeWidgetColours(scheme);
     final signature = '$encoded|${scheme.id}|$colours';
     if (signature == _lastPushed) return;
-    final overdue = rows.where((r) => r.overdue).length;
     // One round trip per preference is a platform call each; they are
     // independent, so they go out together.
     await Future.wait([
       // Android picks its rounded card and header drawables from the scheme id.
       HomeWidget.saveWidgetData<String>('scheme', scheme.id),
       HomeWidget.saveWidgetData<String>('rows', encoded),
-      HomeWidget.saveWidgetData<int>('count', rows.length),
-      HomeWidget.saveWidgetData<int>('overdue', overdue),
       for (final entry in colours.entries)
         HomeWidget.saveWidgetData<int>(entry.key, entry.value),
     ]);

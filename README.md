@@ -105,6 +105,11 @@ the task title, its labels and Vikunja's own wording for when it is due, with
 overdue rows in the accent colour. Tap a row to open that task, or the header to
 open the app. It repaints in whichever theme you have picked.
 
+It carries the next week of deadlines and decides which of them are due when it
+paints, so a task that falls due at midnight turns up without opening the app —
+Android redraws the widget from its last snapshot every half hour or so. Tasks
+added or rescheduled on another device wait for the next launch.
+
 ## Offline
 
 The last successful refresh is kept as a read-only copy on the device, so the app
@@ -166,8 +171,9 @@ Updates install straight over the old version and keep your settings.
 
 - Only list and Kanban views; Vikunja's table and Gantt views are not drawn.
 - Offline is read-only — there is no queue of edits waiting to sync.
-- No push notifications and no background work: alerts and the widget update
-  while the app is running.
+- No push notifications and no background work: alerts arrive while the app is
+  running, and the widget redraws itself from its last snapshot but only the app
+  fetches new tasks.
 - Repeating tasks follow whatever Vikunja decides a completed occurrence becomes;
   individual occurrences are not edited here.
 - Android only. The code is Flutter and would build for iOS, but nobody has done

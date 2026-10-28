@@ -189,8 +189,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         _TitleRow(
                           task: task,
                           controller: _title,
-                          onToggleDone: () =>
-                              _set(state, task, (t) => t.done = !t.done),
+                          onToggleDone: () => _toggleDone(state, task),
                         ),
                         const SizedBox(height: 8),
                         _NotesField(
@@ -278,6 +277,16 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _reload() async {
     // The state keeps the result and notifies; there is no local copy to patch.
     await AppScope.read(context).loadTask(widget.taskId);
+  }
+
+  /// Ticking the task off ends the visit: commit the typed text, then leave the
+  /// way back does, instead of leaving the user on a done task.
+  Future<void> _toggleDone(AppState state, VikunjaTask task) async {
+    _debounce?.cancel();
+    _saveText();
+    await state.toggleDone(task);
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Future<void> _set(

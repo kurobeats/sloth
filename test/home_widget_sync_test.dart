@@ -24,33 +24,41 @@ void main() {
 
   final now = DateTime(2026, 10, 25, 9);
 
-  test('only open tasks due today or earlier are listed', () {
+  test('every open task due in the next week travels, soonest first', () {
     final rows = homeWidgetRows([
       task(1, 'Overdue chain', due: DateTime(2026, 10, 24)),
       task(2, 'Filter', due: DateTime(2026, 10, 25, 18)),
       task(3, 'Tomorrow', due: DateTime(2026, 10, 26)),
-      task(4, 'Already done', due: DateTime(2026, 10, 25), done: true),
-      task(5, 'No due date'),
+      task(4, 'Next week', due: DateTime(2026, 11, 1, 9)),
+      task(5, 'Too far out', due: DateTime(2026, 11, 2)),
+      task(6, 'Already done', due: DateTime(2026, 10, 25), done: true),
+      task(7, 'No due date'),
     ], now: now);
 
-    expect(rows.map((r) => r.title), ['Overdue chain', 'Filter']);
-    expect(rows.first.meta, 'Yesterday');
-    expect(rows.last.meta, 'Today');
+    expect(rows.map((r) => r.title), [
+      'Overdue chain',
+      'Filter',
+      'Tomorrow',
+      'Next week',
+    ]);
+    expect(
+      rows.first.due,
+      DateTime(2026, 10, 24),
+      reason: 'the raw deadline travels, not a label that goes stale',
+    );
   });
 
   test('the payload is JSON with the fields the provider reads', () {
+    final due = DateTime(2026, 10, 25, 18);
     final payload = encodeHomeWidgetRows(
-      homeWidgetRows([
-        task(7, 'Fix bike', due: DateTime(2026, 10, 25)),
-      ], now: now),
+      homeWidgetRows([task(7, 'Fix bike', due: due)], now: now),
     );
     final decoded = jsonDecode(payload) as List;
     expect(decoded.single, {
       'id': 7,
       'title': 'Fix bike',
-      'meta': 'Today',
+      'due': due.millisecondsSinceEpoch,
       'tags': '',
-      'overdue': false,
     });
   });
 
@@ -74,12 +82,12 @@ void main() {
     expect(decoded.last['tags'], '');
   });
 
-  test('at most five rows, so the widget keeps its size', () {
+  test('the snapshot is capped, so a busy week does not bloat it', () {
     final rows = homeWidgetRows([
-      for (var i = 0; i < 9; i++)
-        task(i, 'Task $i', due: DateTime(2026, 10, 25)),
+      for (var i = 0; i < 40; i++)
+        task(i, 'Task $i', due: DateTime(2026, 10, 25, 1).add(Duration(hours: i))),
     ], now: now);
-    expect(rows, hasLength(5));
+    expect(rows, hasLength(widgetRowLimit));
   });
 
   test('the widget colours come from the active scheme', () {
@@ -100,14 +108,5 @@ void main() {
       expect(colours['accent'], scheme.accent.toARGB32());
       expect(colours['header'], isNot(colours['bg']), reason: 'bar is visible');
     }
-  });
-
-  test('overdue rows are flagged so the widget can colour them', () {
-    final rows = homeWidgetRows([
-      task(1, 'Late', due: DateTime(2026, 10, 20)),
-      task(2, 'Today', due: DateTime(2026, 10, 25)),
-    ], now: now);
-    expect(rows.first.overdue, isTrue);
-    expect(rows.last.overdue, isFalse);
   });
 }

@@ -7,9 +7,10 @@ import 'package:sloth/models.dart';
 import 'package:sloth/state.dart';
 import 'package:sloth/todo_theme.dart';
 
-/// The widget push is nine preference writes plus a redraw, and it runs after
-/// every mutation and theme change. Identical payloads must not touch the
-/// platform again; what travels is capped, because the lock screen is public.
+/// The widget push is a preference write per colour and payload plus a redraw,
+/// and it runs after every mutation and theme change. Identical payloads must
+/// not touch the platform again; what travels is capped, because the lock
+/// screen is public.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -94,13 +95,7 @@ void main() {
       expect(rows.single.title.length, lessThanOrEqualTo(41));
 
       final decoded = jsonDecode(encodeHomeWidgetRows(rows)) as List;
-      expect(decoded.single.keys.toSet(), {
-        'id',
-        'title',
-        'meta',
-        'tags',
-        'overdue',
-      });
+      expect(decoded.single.keys.toSet(), {'id', 'title', 'due', 'tags'});
       expect(decoded.single['id'], 42);
     });
 
@@ -121,7 +116,7 @@ void main() {
       expect(
         pushed.where((a) => a.contains('Private note')),
         isEmpty,
-        reason: 'the row carries id/title/meta/tags/overdue only',
+        reason: 'the row carries id/title/due/tags only',
       );
     });
   });
