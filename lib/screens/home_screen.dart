@@ -8,6 +8,7 @@ import '../todo_theme.dart';
 import '../widgets/entry_bar.dart';
 import '../widgets/about_dialog.dart';
 import '../widgets/offline_banner.dart';
+import '../widgets/project_picker.dart';
 import '../widgets/task_tile.dart';
 import 'labels_screen.dart';
 import 'account_settings_screen.dart';
@@ -95,9 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!requireOnline(context, state)) return false;
     VikunjaProject? target = state.selection.project;
     if (target == null) {
-      final projects = state.writableProjects
-          .where((p) => !p.isArchived)
-          .toList();
+      final projects = state.addableProjects;
       if (projects.isEmpty) {
         // Nothing to add the task to. Silently dropping the typed title looks
         // like the app lost it; say what is missing instead.
@@ -105,37 +104,14 @@ class _HomeScreenState extends State<HomeScreen> {
             .showSnackBar(const SnackBar(content: Text('Create a list first')));
         return false;
       }
-      if (projects.length > 1) {
-        target = await showModalBottomSheet<VikunjaProject>(
-          context: context,
-          showDragHandle: true,
-          builder: (context) => SafeArea(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Text(
-                    'Choose a project',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                for (final p in projects)
-                  ListTile(
-                    leading: Icon(
-                      Icons.list_alt,
-                      color: TodoColors.serverColor(
-                        p.hexColor,
-                        TodoColors.of(context),
-                      ),
-                    ),
-                    title: Text(p.title),
-                    onTap: () => Navigator.pop(context, p),
-                  ),
-              ],
-            ),
-          ),
-        );
+      // Vikunja's own "default project" decides where a task lands without
+      // asking; with none set the sorted picker is shown when there is a choice.
+      final wanted = state.userSettings.defaultProjectId;
+      final preferred = projects.indexWhere((p) => p.id == wanted);
+      if (preferred >= 0) {
+        target = projects[preferred];
+      } else if (projects.length > 1) {
+        target = await showProjectPicker(context, state);
       } else {
         target = projects.first;
       }

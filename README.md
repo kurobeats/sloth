@@ -70,7 +70,8 @@ Pull down to refresh. The add-a-task bar is always at the bottom.
 
 **Work on a task.** Open one to set its title, description, due date, reminders,
 repeat, priority, project and labels; add assignees, subtasks and other related
-tasks, comments, and file attachments you can download or share.
+tasks, comments, and file attachments you can download or share. Changing the
+project moves the task there, the same as the web UI.
 
 **See the whole board.** Every project can be shown as a Kanban board — columns
 come from the project's own board view, and dragging a card moves it there for
@@ -98,7 +99,15 @@ mean the same thing here as they do in the web UI.
 Vikunja has no push service, so Sloth checks for notifications while it is
 running — on launch, on refresh, and every ten minutes in the foreground — and
 posts a status-bar notification for new assignments, comments, mentions and team
-changes. Tapping one opens the task. Nothing arrives while the app is closed.
+changes. Tapping one opens the task. Nothing from that feed arrives while the app
+is closed.
+
+**Task reminders do arrive with the app closed.** Vikunja stores a reminder time
+per task; Sloth hands each one to Android's alarm queue, so it fires on time even
+if the app has not been opened for days. Exact alarms need Android's "alarms &
+reminders" permission — without it a reminder still fires, a few minutes late.
+The alarm set is rebuilt on every refresh, so editing, completing or deleting a
+task re-arms or disarms it.
 
 The home screen widget mirrors your Due Today list: up to five rows, each with
 the task title, its labels and Vikunja's own wording for when it is due, with
@@ -175,9 +184,13 @@ Updates install straight over the old version and keep your settings.
 
 - Only list and Kanban views; Vikunja's table and Gantt views are not drawn.
 - Offline is read-only — there is no queue of edits waiting to sync.
-- No push notifications and no background work: alerts arrive while the app is
-  running, and the widget redraws itself from its last snapshot but only the app
-  fetches new tasks.
+- No push channel for Vikunja's notification feed and no background work for it:
+  mentions, comments and assignments arrive while the app is running, and the
+  widget redraws itself from its last snapshot but only the app fetches new
+  tasks. Task reminders are the exception — they are armed as alarms.
+- Android cancels an app's alarms when the app is force-stopped (Settings → App →
+  Force stop), so reminders stop until Sloth is opened again. Swiping it out of
+  Recents is not a force stop and keeps them armed.
 - Repeating tasks follow whatever Vikunja decides a completed occurrence becomes;
   individual occurrences are not edited here.
 - Android only. The code is Flutter and would build for iOS, but nobody has done

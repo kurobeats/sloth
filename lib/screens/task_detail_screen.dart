@@ -7,6 +7,7 @@ import '../state.dart';
 import '../todo_format.dart';
 import '../todo_theme.dart';
 import '../widgets/offline_banner.dart';
+import '../widgets/project_picker.dart';
 import '../widgets/task_extras.dart';
 import '../widgets/unsaved_changes.dart';
 import 'labels_screen.dart';
@@ -224,6 +225,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           onPriorityClear: task.priority == 0
                               ? null
                               : () => _set(state, task, (t) => t.priority = 0),
+                          onProject: () => _pickProject(state, task),
                           onLabels: () async {
                             await showLabelPicker(context, state, task);
                             await state.loadTask(task.id);
@@ -295,6 +297,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     void Function(VikunjaTask) change,
   ) async {
     await state.mutate(task, change);
+  }
+
+  /// Moving a task is a project_id change: Vikunja's whole-task POST carries it
+  /// and re-numbers the identifier, which the response brings back.
+  Future<void> _pickProject(AppState state, VikunjaTask task) async {
+    final picked = await showProjectPicker(
+      context,
+      state,
+      title: 'Move to project',
+      selectedId: task.projectId,
+    );
+    if (picked == null || picked.id == task.projectId || !mounted) return;
+    await _set(state, task, (t) => t.projectId = picked.id);
   }
 
   Future<void> _pickDate(AppState state, VikunjaTask task) async {
@@ -558,6 +573,7 @@ class _MetaRows extends StatelessWidget {
     required this.onRepeatClear,
     required this.onPriority,
     required this.onPriorityClear,
+    required this.onProject,
     required this.onLabels,
   });
 
@@ -571,6 +587,7 @@ class _MetaRows extends StatelessWidget {
   final VoidCallback? onRepeatClear;
   final VoidCallback onPriority;
   final VoidCallback? onPriorityClear;
+  final VoidCallback onProject;
   final VoidCallback onLabels;
 
   @override
@@ -617,7 +634,7 @@ class _MetaRows extends StatelessWidget {
           icon: Icons.list_alt,
           label: 'Project',
           value: projectTitle,
-          onTap: null,
+          onTap: onProject,
         ),
         _RowValue(
           icon: Icons.label_outline,

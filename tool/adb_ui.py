@@ -6,11 +6,14 @@
   ./tool/adb_ui.py list
   ./tool/adb_ui.py screenshot /tmp/name.png
 """
+import os
 import re
 import subprocess
 import sys
 
-DEVICE = '172.16.23.241:5555'
+# Wireless debugging picks a new port on every reboot, so the serial comes from
+# the environment; the fallback is the phone as it usually answers.
+DEVICE = os.environ.get('ADB_DEV', '172.16.23.241:5555')
 
 
 def adb(*args, binary=False):

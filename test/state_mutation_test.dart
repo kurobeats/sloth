@@ -47,6 +47,19 @@ Future<AppState> stateWith(List<Map<String, dynamic>> tasks) async {
 }
 
 void main() {
+  test('a landed change tells the app, so reminders can be re-armed', () async {
+    final state = await stateWith([
+      {'id': 1, 'project_id': 1, 'title': 'Buy milk'},
+    ]);
+    var calls = 0;
+    state.onTasksChanged = () => calls++;
+
+    state.api = echoApi();
+    await state.mutate(state.taskById(1)!, (t) => t.done = true);
+
+    expect(calls, 1, reason: 'a completed task must disarm its reminder now');
+  });
+
   test('a rejected edit is rolled back, not left on screen', () async {
     final state = await stateWith([
       {'id': 1, 'project_id': 1, 'title': 'Buy milk'},

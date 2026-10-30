@@ -474,6 +474,61 @@ void main() {
       );
       expect(state.projectTasksForTest(1)!.single.title, 'Changed');
     });
+
+    test('a project left with an empty cached list is refetched', () async {
+      final source = CountingApi([
+        taskJson(1, projectId: 1, title: 'Home task'),
+      ], projects: [_home]);
+      final state = await stateWith(source);
+      const project = VikunjaProject(
+        id: 1,
+        title: 'Home',
+        views: [VikunjaView(id: 10, title: 'List', viewKind: 'list')],
+      );
+      await state.select(const ListSelection.project(project));
+      // A move can empty a bucket between two visits; the project must then be
+      // asked again instead of showing an empty list the server does not have.
+      await state.mutate(state.taskById(1)!, (t) => t.projectId = 2);
+      expect(state.projectTasksForTest(1), isEmpty);
+      final before = source.viewRequests;
+
+      await state.select(const ListSelection.project(project));
+
+      expect(source.viewRequests, before + 1);
+      expect(state.projectTasksForTest(1), hasLength(1));
+    });
+
+    test('a moved task leaves the list of the project it came from', () async {
+      final source = CountingApi([
+        taskJson(1, projectId: 1, title: 'Home task'),
+      ], projects: [
+        _home,
+        {
+          'id': 2,
+          'title': 'Work',
+          'views': [
+            {'id': 20, 'title': 'List', 'view_kind': 'list'},
+          ],
+        },
+      ]);
+      final state = await stateWith(source);
+      const project = VikunjaProject(
+        id: 1,
+        title: 'Home',
+        views: [VikunjaView(id: 10, title: 'List', viewKind: 'list')],
+      );
+      await state.select(const ListSelection.project(project));
+      expect(state.projectTasksForTest(1), hasLength(1));
+
+      await state.mutate(state.taskById(1)!, (t) => t.projectId = 2);
+
+      expect(state.taskById(1)!.projectId, 2);
+      expect(
+        state.projectTasksForTest(1),
+        isEmpty,
+        reason: 'the old project must not keep showing a task that left it',
+      );
+    });
   });
 
   group('offline restore', () {

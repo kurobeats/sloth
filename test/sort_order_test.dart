@@ -31,7 +31,7 @@ VikunjaApi apiFixture(List<Map<String, dynamic>> tasks) => VikunjaApi(
       return http.Response(
         jsonEncode([
           {'id': 1, 'title': '2 Work'},
-          {'id': 2, 'title': '11 Archive'},
+          {'id': 2, 'title': '11 Archive', 'is_archived': true},
           {'id': 3, 'title': '1 Personal', 'is_favorite': true},
         ]),
         200,
@@ -107,6 +107,17 @@ void main() {
       state.sortedProjects.map((p) => p.id).toList(),
       [3, 1, 2],
       reason: '1 Personal (fav) first, then 2 Work, 11 Archive',
+    );
+    state.dispose();
+  });
+
+  test('the task picker keeps that order but drops archived projects',
+      () async {
+    final state = await stateWith([]);
+    expect(
+      state.addableProjects.map((p) => p.id).toList(),
+      [3, 1],
+      reason: '11 Archive is archived, so it is no target for a new task',
     );
     state.dispose();
   });

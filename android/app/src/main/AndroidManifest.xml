@@ -4,10 +4,32 @@
          cannot reach any server at all. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Task reminders are armed as platform alarms so they fire with the app
+         closed. Without SCHEDULE_EXACT_ALARM they still fire, inexact (up to
+         ~15 minutes late); the boot permission re-arms them after a restart. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:label="Sloth"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- flutter_local_notifications stopped declaring its own receivers in
+             v16: without these two the alarm fires and the broadcast is dropped,
+             so a scheduled reminder never reaches the status bar. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

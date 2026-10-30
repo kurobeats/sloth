@@ -19,7 +19,19 @@ def iso(days=0, hours=0):
     return (TODAY + timedelta(days=days, hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-USER = {"id": 1, "username": "joe", "name": "Joe Bloggs", "email": "joe@example.com"}
+def soon(minutes):
+    """A reminder a few minutes out, so a smoke test can watch it fire."""
+    return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+USER = {
+    "id": 1, "username": "joe", "name": "Joe Bloggs", "email": "joe@example.com",
+    # The account screen round-trips these; default_project_id is what the app
+    # honours when a task is added with no project selected.
+    "settings": {"default_project_id": 0, "week_start": 0},
+}
 
 LABELS = {
     1: {"id": 1, "title": "errand", "hex_color": ""},
@@ -73,6 +85,9 @@ TASKS = [
     task(8, 3, "Review PR #412", done=True),
     task(9, 1, "Water the plants", fav=True, repeat=86400),
     task(10, 2, "Coffee beans", due=iso(3), labels=[1, 2]),
+    # Fires three minutes after the mock starts, with no interaction: the app is
+    # only expected to arm it, the phone delivers it.
+    task(11, 1, "Reminder smoke test", reminder=soon(3)),
 ]
 
 COMMENTS = {1: [{"id": 1, "comment": "Rang them, next slot is Tuesday.",
@@ -93,6 +108,25 @@ TEAMS = [
 PROJECT_TEAMS = {1: [{"id": 1, "name": "Household", "description": "Shared chores",
                       "permission": 1, "members": TEAMS[0]["members"]}]}
 PROJECT_USERS = {1: [dict(USERS[2], permission=0)]}
+# One unread per kind the app renders, so the feed and the reminder alarms are
+# both exercised by a smoke test.
+NOTIFICATIONS = [
+    {"id": 1, "name": "task.comment", "created": iso(0, -1), "read_at": ZERO,
+     "notification": {"doer": USER, "task": {"id": 2, "title": "Reply to Priya about the invoice"},
+                      "project": {"id": 1, "title": "Tasks"},
+                      "comment": {"comment": "Any news on this?"}}},
+    {"id": 2, "name": "task.assigned", "created": iso(-1), "read_at": ZERO,
+     "notification": {"doer": USERS[1], "task": {"id": 6, "title": "Stand-up notes"},
+                      "project": {"id": 3, "title": "Work"}}},
+    {"id": 3, "name": "task.overdue", "created": iso(0, -2), "read_at": ZERO,
+     "notification": {"task": {"id": 3, "title": "Draft Q4 planning doc"},
+                      "project": {"id": 1, "title": "Tasks"}}},
+    {"id": 4, "name": "task.mention", "created": iso(0, -4), "read_at": ZERO,
+     "notification": {"doer": USERS[2], "task": {"id": 5, "title": "Sourdough starter"},
+                      "project": {"id": 2, "title": "Groceries"},
+                      "comment": {"comment": "@joe can you check this?"}}},
+]
+
 LINK_SHARES = {1: [{"id": 1, "hash": "abc123def456", "name": "Family link",
                     "permission": 0, "password": ""}]}
 
@@ -104,8 +138,27 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("%s %s\n" % (self.command, self.path))
 
     def _body(self):
+        # Read once per request: several branches ask, and the stream is drained
+        # by the first read (a second one used to hand back nothing).
+        if hasattr(self, "_cached_body"):
+            return self._cached_body
+        self._cached_body = self._read_body()
+        return self._cached_body
+
+    def _read_body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+        if not n:
+            return {}
+        raw = b""
+        while len(raw) < n:
+            chunk = self.rfile.read(n - len(raw))
+            if not chunk:
+                break
+            raw += chunk
+        try:
+            return json.loads(raw or b"{}")
+        except ValueError:
+            return {}
 
     def _json(self, payload, status=200):
         raw = json.dumps(payload).encode()
@@ -122,7 +175,31 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _guard(self, handler):
+        if hasattr(self, "_cached_body"):
+            del self._cached_body
+        try:
+            handler()
+        except Exception as exc:  # noqa: BLE001 - a mock must answer something
+            sys.stderr.write("mock error: %r\n" % (exc,))
+            try:
+                self._json({"message": "mock error: %s" % exc}, 500)
+            except Exception:
+                pass
+
     def do_GET(self):
+        self._guard(self._get)
+
+    def do_POST(self):
+        self._guard(self._post)
+
+    def do_PUT(self):
+        self._guard(self._put)
+
+    def do_DELETE(self):
+        self._guard(self._delete)
+
+    def _get(self):
         url = urlparse(self.path)
         path, q = url.path, parse_qs(url.query)
         if path == "/api/v1/info":
@@ -135,6 +212,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/v1/user":
             return self._json(USER)
+        if path == "/api/v1/user/settings/general":
+            return self._json(USER["settings"])
+        if path == "/api/v1/notifications":
+            return self._json(NOTIFICATIONS)
         if path == "/api/v1/projects":
             return self._json(PROJECTS)
         if path == "/api/v1/labels":
@@ -182,8 +263,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(match or {"message": "not found"}, 200 if match else 404)
         self._json({"message": f"unhandled GET {path}"}, 404)
 
-    def do_POST(self):
+    def _post(self):
         path = urlparse(self.path).path
+        if path == "/api/v1/user/token/refresh":
+            # The app trades the refresh cookie for a settings JWT before it
+            # writes account settings.
+            return self._json({"token": "mock-token"})
+        if path == "/api/v1/user/settings/general":
+            USER["settings"].update(self._body())
+            return self._json(USER["settings"])
         if path == "/api/v1/login":
             body = self._body()
             if body.get("username") == "joe" and body.get("password") == "secret":
@@ -247,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"message": "not found"}, 404)
         self._json({"message": f"unhandled POST {path}"}, 404)
 
-    def do_PUT(self):
+    def _put(self):
         path = urlparse(self.path).path
         if not self._authed():
             return
@@ -336,7 +424,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(entry)
         self._json({"message": f"unhandled PUT {path}"}, 404)
 
-    def do_DELETE(self):
+    def _delete(self):
         path = urlparse(self.path).path
         if not self._authed():
             return

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 
+import 'home_widget_sync.dart';
 import 'notifications_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
@@ -49,6 +50,15 @@ class SlothAppState extends State<SlothApp> with WidgetsBindingObserver {
     unawaited(_state.restore());
     _widgetClicks = HomeWidget.widgetClicked.listen(openFromWidget);
     _startNotificationPolling();
+    // A completed or rescheduled task must not leave its reminder armed until
+    // the next poll; arming needs no network, so a change re-arms straight away.
+    _state.onTasksChanged = () => unawaited(
+      _notifications.rescheduleReminders(
+        _state.allTasksForWidget,
+        activeScheme(_state),
+        _state.clock(),
+      ),
+    );
     // A tap that started the app arrives once the first frame is up.
     HomeWidget.initiallyLaunchedFromHomeWidget().then(openFromWidget);
   }

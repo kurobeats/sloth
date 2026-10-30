@@ -668,7 +668,12 @@ class AppState extends ChangeNotifier {
   Future<void> select(ListSelection next) async {
     selection = next;
     notifyListeners();
-    if (next.project != null && !_projectTasks.containsKey(next.project!.id)) {
+    // An empty bucket is not proof of an empty project: adding a task files it
+    // into a bucket that no fetch filled, and a move can leave one behind. Only
+    // a missing bucket was ever refilled, so a project could sit there showing
+    // "empty" while the server had tasks.
+    final cached = _projectTasks[next.project?.id];
+    if (next.project != null && (cached == null || cached.isEmpty)) {
       loading = true;
       notifyListeners();
       try {
@@ -797,6 +802,11 @@ class AppState extends ChangeNotifier {
   List<VikunjaProject> get savedFilters =>
       projects.where((p) => p.id < 0).toList();
 
+  /// The projects a task can be filed into: sorted, and without the archived
+  /// ones, which the server no longer offers as a target.
+  List<VikunjaProject> get addableProjects =>
+      sortedProjects.where((p) => !p.isArchived).toList(growable: false);
+
   /// Vikunja pins favorite projects above the rest; the rest sort A→Z by
   /// title (natural order, so Johnny.Decimal prefixes like 1.2 < 1.10).
   List<VikunjaProject> get sortedProjects {
@@ -853,6 +863,11 @@ class AppState extends ChangeNotifier {
   /// persists. A rejected edit is rolled back to the instance the caches held:
   /// `refresh()` cannot be the rollback, it swallows its own errors and leaves
   /// the optimistic edit on screen.
+  /// Called once a task change has landed, so the pieces outside the state can
+  /// follow it: the app re-arms task reminders here, without waiting for the
+  /// ten-minute poll to notice a task was completed or rescheduled.
+  void Function()? onTasksChanged;
+
   Future<void> mutate(
     VikunjaTask task,
     void Function(VikunjaTask) change,
@@ -882,6 +897,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } finally {
       unawaited(syncHomeWidget(this));
+      onTasksChanged?.call();
     }
   }
 
@@ -939,6 +955,19 @@ class AppState extends ChangeNotifier {
     if (j >= 0) {
       _projectTasks[fresh.projectId] = List.of(projectList!)..[j] = fresh;
     }
+    // A task found in the flat list but not in its own project's list has moved:
+    // the project it left still holds a copy, which would show a task that is
+    // no longer there until the next refresh.
+    if (i >= 0 && j < 0) {
+      for (final entry in _projectTasks.entries) {
+        if (entry.value.any((t) => t.id == fresh.id)) {
+          _projectTasks[entry.key] = [
+            for (final t in entry.value)
+              if (t.id != fresh.id) t,
+          ];
+        }
+      }
+    }
     if (i < 0 && j < 0) _fetchedTasks[fresh.id] = fresh;
     _taskIndex?[fresh.id] = fresh;
   }
@@ -974,10 +1003,11 @@ class AppState extends ChangeNotifier {
           ],
       });
       _allTasks = [created, ..._allTasks];
-      _projectTasks[target.id] = [
-        created,
-        ...(_projectTasks[target.id] ?? const []),
-      ];
+      // Only extend a bucket a fetch already filled. Creating one here left a
+      // list holding just this task, and `select` trusted it as the project's
+      // contents.
+      final bucket = _projectTasks[target.id];
+      if (bucket != null) _projectTasks[target.id] = [created, ...bucket];
       notifyListeners();
       return created;
     } on VikunjaException catch (e) {

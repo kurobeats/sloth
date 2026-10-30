@@ -511,7 +511,9 @@ class VikunjaTask {
   });
 
   final int id;
-  final int projectId;
+  /// Mutable like the other fields: moving a task is a project change, and
+  /// `mutate` applies it to a copy through the same callback as every edit.
+  int projectId;
   String title;
   String? description;
   bool done;
