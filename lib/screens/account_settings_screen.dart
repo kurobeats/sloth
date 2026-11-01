@@ -4,6 +4,7 @@ import '../models.dart';
 import '../state.dart';
 import '../timezones.dart';
 import '../todo_theme.dart';
+import '../widgets/project_picker.dart';
 
 /// Vikunja general user settings (`POST /user/settings/general`).
 class AccountSettingsScreen extends StatefulWidget {
@@ -104,11 +105,33 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     );
   }
 
+  Future<void> _pickDefaultProject() async {
+    final picked = await showProjectPicker(
+      context,
+      AppScope.of(context),
+      title: 'Default project',
+      selectedId: _settings.defaultProjectId,
+    );
+    if (picked == null || !mounted) return;
+    setState(
+      () => _settings = _settings.copyWith(defaultProjectId: picked.id),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final c = TodoColors.of(context);
-    final projects = state.writableProjects;
+    // Only a project that can still be filed into counts as the default; an
+    // archived one silently falls back to None instead of a ghost selection.
+    VikunjaProject? defaultProject;
+    for (final p in state.addableProjects) {
+      if (p.id == _settings.defaultProjectId) defaultProject = p;
+    }
+    // Radio values: the sentinels stand in for the setting itself, whose real
+    // value is a project id (or 0 for none).
+    const noDefault = 0;
+    const pickProject = -1;
 
     return Scaffold(
       appBar: AppBar(
@@ -168,28 +191,69 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               onTap: _pickTimezone,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              initialValue:
-                  projects.any((p) => p.id == _settings.defaultProjectId)
-                  ? _settings.defaultProjectId
-                  : 0,
-              decoration: const InputDecoration(
-                labelText: 'Default project',
-                helperText: 'New tasks from quick add land here',
-                border: OutlineInputBorder(),
+            Text(
+              'Default project',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: c.primaryText,
               ),
-              items: [
-                const DropdownMenuItem(value: 0, child: Text('None')),
-                for (final project in projects)
-                  DropdownMenuItem(
-                    value: project.id,
-                    child: Text(project.title),
+            ),
+            Text(
+              'New tasks from quick add land here',
+              style: TextStyle(fontSize: 12, color: c.secondaryText),
+            ),
+            // Two choices rather than one list: "None" buried among the
+            // projects was easy to miss, and the project list only earns its
+            // space once "Project" is picked.
+            RadioGroup<int>(
+              groupValue: defaultProject == null ? noDefault : pickProject,
+              onChanged: (value) => value == noDefault
+                  ? setState(
+                      () => _settings = _settings.copyWith(defaultProjectId: 0),
+                    )
+                  : _pickDefaultProject(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  RadioListTile<int>(
+                    contentPadding: EdgeInsets.zero,
+                    value: noDefault,
+                    title: Text('None', style: TextStyle(color: c.primaryText)),
                   ),
-              ],
-              onChanged: (value) => setState(
-                () => _settings = _settings.copyWith(
-                  defaultProjectId: value ?? 0,
-                ),
+                  RadioListTile<int>(
+                    contentPadding: EdgeInsets.zero,
+                    value: pickProject,
+                    title: Text(
+                      'Project',
+                      style: TextStyle(color: c.primaryText),
+                    ),
+                    subtitle: defaultProject == null
+                        ? Text(
+                            'Choose a project',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: c.secondaryText,
+                            ),
+                          )
+                        : null,
+                  ),
+                  // A chosen radio row cannot be tapped again, so changing the
+                  // project needs its own row.
+                  if (defaultProject != null)
+                    ListTile(
+                      contentPadding: const EdgeInsets.only(left: 48),
+                      title: Text(
+                        defaultProject.title,
+                        style: TextStyle(color: c.primaryText),
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: c.secondaryText,
+                      ),
+                      onTap: _pickDefaultProject,
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 8),

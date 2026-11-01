@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sloth/models.dart';
 import 'package:sloth/screens/account_settings_screen.dart';
 import 'package:sloth/state.dart';
 import 'package:sloth/todo_theme.dart';
@@ -28,7 +29,94 @@ class SpyNavigatorState extends NavigatorState {
   }
 }
 
+/// The screen inside the plumbing it needs: app scope, theme, messenger.
+Widget host(AppState state, Widget child) => AppScope(
+  state: state,
+  child: Localizations(
+    locale: const Locale('en'),
+    delegates: const [
+      DefaultMaterialLocalizations.delegate,
+      DefaultWidgetsLocalizations.delegate,
+    ],
+    child: Directionality(
+      textDirection: TextDirection.ltr,
+      child: ScaffoldMessenger(
+        child: Navigator(
+          onGenerateRoute: (_) => MaterialPageRoute(
+            builder: (_) => Theme(
+              data: buildTodoTheme(TodoColors.gruvboxLight),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 void main() {
+  testWidgets('the default project is a None/Project choice, not a long list', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final state = AppState()
+      ..projects = const [
+        VikunjaProject(id: 3, title: 'Work', isArchived: true),
+        VikunjaProject(id: 1, title: 'Tasks'),
+        VikunjaProject(id: 2, title: 'Groceries', isFavorite: true),
+      ];
+    await tester.pumpWidget(host(state, const AccountSettingsScreen()));
+    await tester.pump();
+
+    expect(find.text('None'), findsOneWidget);
+    expect(find.text('Project'), findsOneWidget);
+    expect(find.text('Choose a project'), findsOneWidget);
+
+    await tester.tap(find.text('Project'));
+    await tester.pumpAndSettle();
+
+    // The sheet is the shared picker: sorted, and archived projects left out.
+    final titles = tester
+        .widgetList<ListTile>(find.descendant(
+          of: find.byType(ListView).last,
+          matching: find.byType(ListTile),
+        ))
+        .map((t) => (t.title! as Text).data)
+        .toList();
+    expect(titles, ['Groceries', 'Tasks'], reason: 'favourite first, no Work');
+
+    await tester.tap(find.text('Groceries'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose a project'), findsNothing);
+    expect(find.text('Groceries'), findsOneWidget);
+
+    // Changing it again is possible while a project is selected.
+    await tester.tap(find.text('Groceries'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tasks'), findsOneWidget, reason: 'the picker reopened');
+  });
+
+  testWidgets('with no projects loaded the picker says so instead of blank', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    // Cold start straight into settings: the first sync has not landed yet.
+    await tester.pumpWidget(host(AppState(), const AccountSettingsScreen()));
+    await tester.pump();
+
+    await tester.tap(find.text('Project'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No projects to file into yet.'), findsOneWidget);
+  });
+
   testWidgets('a time picker answer landing after the screen closes is dropped', (
     tester,
   ) async {

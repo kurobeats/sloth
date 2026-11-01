@@ -14,6 +14,7 @@ Future<VikunjaProject?> showProjectPicker(
   String title = 'Choose a project',
   int? selectedId,
 }) {
+  final projects = state.addableProjects;
   return showModalBottomSheet<VikunjaProject>(
     context: context,
     showDragHandle: true,
@@ -28,7 +29,17 @@ Future<VikunjaProject?> showProjectPicker(
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
           ),
-          for (final p in state.addableProjects)
+          // Reached before the first sync lands the list is empty; say so
+          // rather than open a blank sheet with no way to pick anything.
+          if (projects.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              child: Text(
+                'No projects to file into yet.',
+                style: TextStyle(color: TodoColors.of(context).secondaryText),
+              ),
+            ),
+          for (final p in projects)
             ListTile(
               leading: Icon(
                 Icons.list_alt,
