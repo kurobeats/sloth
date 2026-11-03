@@ -45,13 +45,15 @@ Future<AppState> stateWithRelations({
           );
         }
         if (path.endsWith('/tasks') && request.method == 'GET') {
-          final body = [for (final e in [if (listCarriesRelations) 1])
-            {
-              'id': 1,
-              'project_id': 1,
-              'title': 'Fix bike',
-              'related_tasks': relations,
-            }];
+          final body = [
+            for (final _ in [if (listCarriesRelations) 0])
+              {
+                'id': 1,
+                'project_id': 1,
+                'title': 'Fix bike',
+                'related_tasks': relations,
+              },
+          ];
           return http.Response(jsonEncode(body), 200);
         }
         return http.Response('[]', 200);

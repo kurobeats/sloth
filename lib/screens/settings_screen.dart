@@ -143,6 +143,28 @@ class _LogoutRow extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: c.secondaryText),
       ),
       onTap: () async {
+        if (context.mounted) {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Log out?'),
+              content: const Text(
+                'You will need to sign in again to see your tasks.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Log out'),
+                ),
+              ],
+            ),
+          );
+          if (ok != true) return;
+        }
         await state.signOut();
         if (context.mounted) Navigator.of(context).pop();
       },
