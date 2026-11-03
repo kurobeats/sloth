@@ -620,9 +620,14 @@ class AppState extends ChangeNotifier {
       _projectTasks = {};
       final project = selection.project;
       if (project != null) {
-        // The all-tasks fetch above already carries this project's rows; asking
-        // the view endpoint again fetched the same tasks a second time.
-        _projectTasks[project.id] = _tasksInProject(project.id);
+        if (project.id > 0) {
+          // The all-tasks fetch above already carries this project's rows; asking
+          // the view endpoint again fetched the same tasks a second time.
+          _projectTasks[project.id] = _tasksInProject(project.id);
+        } else {
+          // A saved filter's rows come from its pseudo-project view.
+          await _loadProjectTasks();
+        }
       }
       offline = false;
       error = null;
@@ -647,17 +652,31 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// The tasks [projectId] owns, from the full task list.
-  List<VikunjaTask> _tasksInProject(int projectId) => [
-    for (final t in _allTasks)
-      if (t.projectId == projectId) t,
-  ];
+  /// The tasks [projectId] owns, from the full task list. Saved filters are
+  /// served by the server's pseudo-project view instead: a task keeps the
+  /// project id it lives in, so no task ever carries the negative id.
+  List<VikunjaTask> _tasksInProject(int projectId) => projectId < 0
+      ? const []
+      : [for (final t in _allTasks) if (t.projectId == projectId) t];
 
   Future<void> _loadProjectTasks() async {
     final client = api;
-    final project = selection.project;
-    if (client == null || project == null) return;
-    final viewId = project.listViewId;
+    if (client == null) return;
+    var project = selection.project;
+    if (project == null) return;
+    var viewId = project.listViewId;
+    // Vikunja's GET /projects leaves saved-filter pseudo-projects without
+    // their views; the single-project fetch carries them.
+    if (viewId == null && project.id < 0) {
+      project = await client.project(project.id);
+      viewId = project.listViewId;
+      if (viewId != null) {
+        projects = [
+          for (final p in projects) p.id == project.id ? project : p,
+        ];
+        _projectIndex = null;
+      }
+    }
     if (viewId == null) {
       _projectTasks[project.id] = const [];
       return;
@@ -818,12 +837,23 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  int countForProject(VikunjaProject project) =>
-      _allTasks.where((t) => !t.done && t.projectId == project.id).length;
+  /// Saved filters show their fetched view's rows: a filter task only keeps
+  /// its origin project id, so the flat list cannot answer per filter.
+  int countForProject(VikunjaProject project) => project.id < 0
+      ? (_projectTasks[project.id] ?? const <VikunjaTask>[])
+            .where((t) => !t.done)
+            .length
+      : _allTasks.where((t) => !t.done && t.projectId == project.id).length;
 
   int countForTag(VikunjaLabel tag) => _allTasks
       .where((t) => !t.done && t.labels.any((l) => l.id == tag.id))
       .length;
+
+  /// Rows a project's own view already fetched, or null when that view was
+  /// never loaded. A saved filter's count comes from here once one open has
+  /// filled it; the flat list cannot answer per filter.
+  List<VikunjaTask>? fetchedProjectTasks(int projectId) =>
+      _projectTasks[projectId];
 
   /// Inside a list, tasks sort A→Z when the user picks it, otherwise by
   /// due date.
@@ -940,6 +970,16 @@ class AppState extends ChangeNotifier {
   }
 
   void _replace(VikunjaTask fresh) {
+    // Vikunja only expands related_tasks on answers that were asked for it
+    // (GET /tasks/{id}); update and list answers can come back without the
+    // key. An absent key says nothing about the task's relations, so the copy
+    // the app already holds is kept.
+    final existing = taskById(fresh.id);
+    if (existing != null &&
+        fresh.relatedTasks == null &&
+        existing.relatedTasks != null) {
+      fresh = fresh.copyWith(relatedTasks: existing.relatedTasks);
+    }
     // A change the app holds locally is newer than any read already in flight.
     _localEdits.add(fresh.id);
     if (_localEdits.length > 1000) {

@@ -570,11 +570,17 @@ class _EmptyState extends StatelessWidget {
             'Labels are added to tasks in Vikunja.',
           )
         : list.project != null
-        ? (
-            Icons.check_circle_outline,
-            'This project is currently empty.',
-            'Create a new task with the bar below.',
-          )
+        ? list.project!.id < 0
+              ? (
+                  Icons.check_circle_outline,
+                  'No tasks match this filter.',
+                  'The filter on the server decides what shows up here.',
+                )
+              : (
+                  Icons.check_circle_outline,
+                  'This project is currently empty.',
+                  'Create a new task with the bar below.',
+                )
         : switch (list.smart) {
             SmartList.dueToday => (
               Icons.today_outlined,
@@ -752,6 +758,11 @@ class _DrawerState extends State<_Drawer> {
             ),
             _FilterRows(
               filters: state.savedFilters,
+              counts: {
+                for (final filter in state.savedFilters)
+                  if (state.fetchedProjectTasks(filter.id) case final rows?)
+                    filter.id: rows.where((t) => !t.done).length,
+              },
               selectedId: state.selection.project?.id,
               onSelected: (filter) {
                 _close();
@@ -943,11 +954,16 @@ class _ProjectRows extends StatelessWidget {
 class _FilterRows extends StatelessWidget {
   const _FilterRows({
     required this.filters,
+    required this.counts,
     required this.selectedId,
     required this.onSelected,
   });
 
   final List<VikunjaProject> filters;
+
+  /// Open-row counts for filters whose view has been fetched once; the flat
+  /// task list cannot answer per filter, so unfetched filters show no count.
+  final Map<int, int> counts;
   final int? selectedId;
   final ValueChanged<VikunjaProject> onSelected;
 
@@ -972,6 +988,7 @@ class _FilterRows extends StatelessWidget {
           _DrawerRow(
             icon: Icons.filter_alt_outlined,
             label: filter.title,
+            trailing: counts[filter.id],
             selected: selectedId == filter.id,
             onTap: () => onSelected(filter),
           ),

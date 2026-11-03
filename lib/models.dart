@@ -647,6 +647,7 @@ class VikunjaTask {
     List<VikunjaReminder>? reminders,
     int? repeatAfter,
     int? repeatMode,
+    Map<String, dynamic>? relatedTasks,
   }) => VikunjaTask(
     id: id,
     projectId: projectId,
@@ -671,7 +672,7 @@ class VikunjaTask {
     updated: updated,
     position: position,
     commentCount: commentCount,
-    relatedTasks: relatedTasks,
+    relatedTasks: relatedTasks ?? this.relatedTasks,
   );
 
   /// Value equality over the fields the app reads. `relatedTasks` is the raw
