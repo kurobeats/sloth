@@ -48,6 +48,7 @@ dependencies:
   timezone: ^0.11.2
   package_info_plus: ^10.2.2
   flutter_widget_from_html_core: ^0.17.4
+  fwfh_url_launcher: ^0.16.1
 
 dev_dependencies:
   flutter_test:

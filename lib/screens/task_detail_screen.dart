@@ -12,6 +12,7 @@ import '../widgets/task_extras.dart';
 import '../widgets/unsaved_changes.dart';
 import 'labels_screen.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:fwfh_url_launcher/fwfh_url_launcher.dart';
 
 /// Task detail: title with a check target, then note / due date / reminder /
 /// repeat / priority rows, with the creation date and delete in the footer.
@@ -546,6 +547,9 @@ class NotesFieldPreview extends StatelessWidget {
   }
 }
 
+/// Factory for the rendered description: links open via url_launcher.
+class _DescWidgetFactory extends WidgetFactory with UrlLauncherFactory {}
+
 class _NotesFieldState extends State<_NotesField> {
   bool _raw = false;
 
@@ -573,6 +577,7 @@ class _NotesFieldState extends State<_NotesField> {
             Expanded(
               child: HtmlWidget(
                 widget.controller.text,
+                factoryBuilder: _DescWidgetFactory.new,
                 textStyle: TextStyle(
                   fontSize: TodoText.medium,
                   color: c.primaryText,

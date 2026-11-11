@@ -262,6 +262,11 @@ class AppState extends ChangeNotifier {
   /// second tap while the bar is already focused still does something.
   final ValueNotifier<int> newTaskRequests = ValueNotifier(0);
 
+  /// Text shared into the app from another one (Android ACTION_SEND). Held
+  /// here until the home screen drops it into the add-a-task bar; null when
+  /// nothing is waiting.
+  final ValueNotifier<String?> sharedDraft = ValueNotifier(null);
+
   /// Set by [dispose]. A request that was in flight when the screen went away
   /// still completes, and notifying a disposed notifier throws.
   bool _disposed = false;

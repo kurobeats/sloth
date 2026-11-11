@@ -56,21 +56,31 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openCreate() {
     if (!mounted) return;
     final requests = _state.newTaskRequests.value;
-    if (requests == _createRequests) return;
+    final shared = _state.sharedDraft.value;
+    if (requests == _createRequests && shared == null) return;
     _createRequests = requests;
+    _state.sharedDraft.value = null;
     // A task or board on top goes first, or the focused bar would be hidden
     // behind it. The popped route hands focus back to this one as it goes, so
     // the bar has to be asked once that transition has finished.
     final covered = !(ModalRoute.of(context)?.isCurrent ?? true);
     Navigator.of(context).popUntil((route) => route.isFirst);
+    void open() {
+      if (!mounted) return;
+      // A shared draft comes with its own cursor placement (setDraft also
+      // focuses), otherwise just put the cursor in the empty bar.
+      if (shared != null) {
+        _entryBar.currentState?.setDraft(shared);
+      } else {
+        _entryBar.currentState?.focus();
+      }
+    }
     if (!covered) {
-      _entryBar.currentState?.focus();
+      open();
       return;
     }
     // shortcut: 350ms is the route transition; revisit if that changes.
-    Future<void>.delayed(const Duration(milliseconds: 350), () {
-      if (mounted) _entryBar.currentState?.focus();
-    });
+    Future<void>.delayed(const Duration(milliseconds: 350), open);
   }
 
   @override

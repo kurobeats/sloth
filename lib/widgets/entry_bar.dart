@@ -75,6 +75,14 @@ class EntryBarState extends State<EntryBar> {
     });
   }
 
+  /// Draft dropped in from a share (or a test), cursor at the end so typing
+  /// continues where the shared text left off.
+  void setDraft(String text) {
+    _controller.text = text;
+    _controller.selection = TextSelection.collapsed(offset: text.length);
+    focus();
+  }
+
   @override
   void dispose() {
     _controller.dispose();

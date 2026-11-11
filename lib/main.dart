@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'home_widget_sync.dart';
@@ -26,6 +27,11 @@ class SlothApp extends StatefulWidget {
 }
 
 class SlothAppState extends State<SlothApp> with WidgetsBindingObserver {
+  static const _shareChannel = MethodChannel('sloth/share');
+
+  /// ACTION_SEND text/plain arrives as "title\nURL"; the add-a-task bar is
+  /// single-line, so the shared text becomes one collapsed draft title.
+  static final _whitespace = RegExp(r'\s+');
   late final AppState _state = widget.state ?? AppState();
   final _navigator = GlobalKey<NavigatorState>();
   late final NotificationsService _notifications =
@@ -61,6 +67,36 @@ class SlothAppState extends State<SlothApp> with WidgetsBindingObserver {
     );
     // A tap that started the app arrives once the first frame is up.
     HomeWidget.initiallyLaunchedFromHomeWidget().then(openFromWidget);
+    // A share that started the app is only on the platform side once the
+    // engine is up, so ask after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_takeSharedText());
+    });
+  }
+
+  /// Text shared into Sloth from another app (Firefox's share sheet and
+  /// friends): ask Android for it, hold it until the session is up, then let
+  /// the home screen drop it into the add-a-task bar. Runs on start and on
+  /// every resume, so a share into a backgrounded app is picked up too.
+  @visibleForTesting
+  Future<void> takeSharedText() => _takeSharedText();
+
+  Future<void> _takeSharedText() async {
+    String? text;
+    try {
+      text = await _shareChannel.invokeMethod<String>('getSharedText');
+    } on MissingPluginException {
+      // Tests run on other platforms: no channel to ask.
+      return;
+    } on PlatformException catch (_) {
+      // A failing engine exchange is a missing share, not an app error.
+      return;
+    }
+    if (text == null || text.trim().isEmpty || !mounted) return;
+    await _state.ready;
+    if (!mounted || !_state.isSignedIn) return;
+    _state.sharedDraft.value = text.trim().replaceAll(_whitespace, ' ');
+    _state.newTaskRequests.value++;
   }
 
   @override
@@ -82,6 +118,8 @@ class SlothAppState extends State<SlothApp> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         if (_poll == null) _startNotificationPolling();
+        // A share that woke the app from the background lands here.
+        unawaited(_takeSharedText());
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
