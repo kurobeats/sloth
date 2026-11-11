@@ -239,6 +239,41 @@ class _LabelDialogState extends State<_LabelDialog> {
   }
 }
 
+/// Opens the create dialog from inside the task label picker and leaves the
+/// new label ticked, so Apply attaches it to the task without extra taps.
+Future<void> _createLabel(
+  BuildContext context,
+  AppState state,
+  Set<int> selected,
+  void Function(void Function()) setLocal,
+) async {
+  final before = {for (final label in state.labels) label.id};
+  final draft = await showDialog<_LabelDraft>(
+    context: context,
+    builder: (_) => _LabelDialog(state: state, label: null),
+  );
+  if (draft == null || draft.title.isEmpty) return;
+  final error = await state.createLabel(
+    draft.title,
+    hexColor: draft.hexColor,
+    description: draft.description,
+  );
+  if (error != null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+    return;
+  }
+  // createLabel appends to state.labels; tick everything that is new.
+  setLocal(
+    () => selected.addAll([
+      for (final label in state.labels)
+        if (!before.contains(label.id)) label.id,
+    ]),
+  );
+}
+
 /// Label picker for a task: toggles labels on it via the bulk endpoint.
 Future<void> showLabelPicker(
   BuildContext context,
@@ -247,76 +282,90 @@ Future<void> showLabelPicker(
 ) async {
   final selected = {for (final label in task.labels) label.id};
 
+  // Creating a label notifies [state], so the sheet must listen or the new
+  // label would only appear after it is closed and reopened.
   final confirmed = await showModalBottomSheet<bool>(
     context: context,
     showDragHandle: true,
     builder: (context) => StatefulBuilder(
-      builder: (context, setLocal) {
-        final c = TodoColors.of(context);
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      'Labels',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: c.primaryText,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Apply'),
-                    ),
-                  ],
-                ),
-              ),
-              if (state.labels.isEmpty)
+      builder: (context, setLocal) => ListenableBuilder(
+        listenable: state,
+        builder: (context, _) {
+          final c = TodoColors.of(context);
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'Create a label first',
-                    style: TextStyle(color: c.secondaryText),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Labels',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: c.primaryText,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Apply'),
+                      ),
+                    ],
                   ),
                 ),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final label in state.labels)
-                      CheckboxListTile(
-                        value: selected.contains(label.id),
-                        activeColor: c.accent,
-                        checkColor: c.onAccent,
-                        secondary: Icon(
-                          Icons.label,
-                          color: TodoColors.serverColor(label.hexColor, c),
+                if (state.labels.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'Create a label first',
+                      style: TextStyle(color: c.secondaryText),
+                    ),
+                  ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final label in state.labels)
+                        CheckboxListTile(
+                          value: selected.contains(label.id),
+                          activeColor: c.accent,
+                          checkColor: c.onAccent,
+                          secondary: Icon(
+                            Icons.label,
+                            color: TodoColors.serverColor(label.hexColor, c),
+                          ),
+                          title: Text(
+                            label.title,
+                            style: TextStyle(color: c.primaryText),
+                          ),
+                          onChanged: (value) => setLocal(() {
+                            if (value == true) {
+                              selected.add(label.id);
+                            } else {
+                              selected.remove(label.id);
+                            }
+                          }),
                         ),
+                      ListTile(
+                        leading: Icon(Icons.add, color: c.accent),
                         title: Text(
-                          label.title,
-                          style: TextStyle(color: c.primaryText),
+                          'New label',
+                          style: TextStyle(color: c.accent),
                         ),
-                        onChanged: (value) => setLocal(() {
-                          if (value == true) {
-                            selected.add(label.id);
-                          } else {
-                            selected.remove(label.id);
-                          }
-                        }),
+                        onTap: () =>
+                            _createLabel(context, state, selected, setLocal),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+          );
+        },
+      ),
     ),
   );
 

@@ -323,6 +323,15 @@ class Handler(BaseHTTPRequestHandler):
                 if "is_archived" in body:
                     project["is_archived"] = body["is_archived"]
                 return self._json(project)
+        if path.startswith("/api/v1/tasks/") and path.endswith("/labels/bulk"):
+            tid = int(path.split("/")[4])
+            body = self._body()
+            ids = [l["id"] for l in body.get("labels", [])]
+            task = next((t for t in TASKS if t["id"] == tid), None)
+            if task is None:
+                return self._json({"message": "not found"}, 404)
+            task["labels"] = [LABELS[i] for i in ids if i in LABELS]
+            return self._json({"message": "success"})
         if path.startswith("/api/v1/tasks/"):
             tid = int(path.rsplit("/", 1)[1])
             body = self._body()
@@ -339,6 +348,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not self._authed():
             return
+        if path == "/api/v1/labels":
+            body = self._body()
+            new = {"id": max([l["id"] for l in LABELS.values()] or [0]) + 1,
+                   "title": body.get("title", "New label"),
+                   "hex_color": body.get("hex_color", ""),
+                   "description": body.get("description", "")}
+            LABELS[new["id"]] = new
+            return self._json(new)
         if path == "/api/v1/teams":
             body = self._body()
             new = {"id": max([t["id"] for t in TEAMS] or [0]) + 1,

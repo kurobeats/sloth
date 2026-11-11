@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../todo_theme.dart';
 import 'unsaved_changes.dart';
@@ -39,7 +40,7 @@ class EntryBar extends StatefulWidget {
 
 /// The state is public so the home screen can put the cursor in the bar when
 /// the widget's plus button asks for it.
-class EntryBarState extends State<EntryBar> {
+class EntryBarState extends State<EntryBar> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _focus = FocusNode();
   bool _busy = false;
@@ -51,6 +52,18 @@ class EntryBarState extends State<EntryBar> {
   void initState() {
     super.initState();
     _controller.addListener(_syncDraft);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // Android drops the IME while the app is backgrounded but keeps the bar's
+    // focus and stale keyboard inset: on resume the bar floats above a phantom
+    // keyboard-space it can never close. Dropping focus clears both; tapping
+    // the bar reopens the keyboard as usual.
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    _focus.unfocus();
   }
 
   void _syncDraft() {
@@ -85,6 +98,7 @@ class EntryBarState extends State<EntryBar> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _focus.dispose();
     super.dispose();
