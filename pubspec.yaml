@@ -47,6 +47,7 @@ dependencies:
   # because scheduled reminders build their fire time from it directly.
   timezone: ^0.11.2
   package_info_plus: ^10.2.2
+  flutter_widget_from_html_core: ^0.17.4
 
 dev_dependencies:
   flutter_test:

@@ -11,6 +11,7 @@ import '../widgets/project_picker.dart';
 import '../widgets/task_extras.dart';
 import '../widgets/unsaved_changes.dart';
 import 'labels_screen.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
 /// Task detail: title with a check target, then note / due date / reminder /
 /// repeat / priority rows, with the creation date and delete in the footer.
@@ -504,9 +505,16 @@ class _TitleRow extends StatelessWidget {
   }
 }
 
+/// Vikunja stores descriptions as Tiptap HTML. Plain text never matches:
+/// "I <3 this" has no letter after the '<', and a single '<' or '>' survives.
+final _htmlTagRe = RegExp(r'<[a-z][^>]*>', caseSensitive: false);
+
+bool looksLikeHtml(String s) => _htmlTagRe.hasMatch(s);
+
 /// The description: a "Set Description" button until it is opened, then the
-/// multiline field.
-class _NotesField extends StatelessWidget {
+/// multiline field. HTML descriptions render as HTML; the pencil switches to
+/// the raw field so the server-side HTML round-trips unchanged.
+class _NotesField extends StatefulWidget {
   const _NotesField({
     required this.controller,
     required this.open,
@@ -518,13 +526,67 @@ class _NotesField extends StatelessWidget {
   final VoidCallback onOpen;
 
   @override
+  State<_NotesField> createState() => _NotesFieldState();
+}
+
+/// Test hook for the private [_NotesField] with its default inputs.
+@visibleForTesting
+class NotesFieldPreview extends StatelessWidget {
+  const NotesFieldPreview({super.key, required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return _NotesField(
+      controller: controller,
+      open: true,
+      onOpen: () {},
+    );
+  }
+}
+
+class _NotesFieldState extends State<_NotesField> {
+  bool _raw = false;
+
+  @override
   Widget build(BuildContext context) {
     final c = TodoColors.of(context);
-    if (!open) {
+    if (!widget.open) {
       return _RowButton(
         icon: Icons.notes,
         label: 'Set Description',
-        onTap: onOpen,
+        onTap: widget.onOpen,
+      );
+    }
+    if (!_raw && looksLikeHtml(widget.controller.text)) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Icon(Icons.notes, size: 18, color: c.secondaryText),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: HtmlWidget(
+                widget.controller.text,
+                textStyle: TextStyle(
+                  fontSize: TodoText.medium,
+                  color: c.primaryText,
+                ),
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.edit_outlined, size: 18),
+              color: c.secondaryText,
+              tooltip: 'Edit raw HTML',
+              onPressed: () => setState(() => _raw = true),
+            ),
+          ],
+        ),
       );
     }
     return Padding(
@@ -539,7 +601,7 @@ class _NotesField extends StatelessWidget {
           const SizedBox(width: 14),
           Expanded(
             child: TextField(
-              controller: controller,
+              controller: widget.controller,
               maxLines: null,
               minLines: 2,
               style: TextStyle(fontSize: TodoText.medium, color: c.primaryText),
