@@ -9,6 +9,15 @@
          ~15 minutes late); the boot permission re-arms them after a restart. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Android 11 package visibility: without this the URL launcher (used by
+         links in rendered task descriptions) cannot see any browser and
+         launchUrl fails with "unsupported". -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
     <application
         android:label="Sloth"
         android:name="${applicationName}"
