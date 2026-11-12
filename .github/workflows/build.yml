@@ -21,6 +21,9 @@ jobs:
       # Release builds only inherit permissions from the main manifest, so a
       # missing INTERNET entry there ships an APK that cannot reach any server.
       - run: grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+      # F-Droid's bot copies this build recipe for every release tag, so a tag
+      # without the vendored Flutter submodule would break its buildbot.
+      - run: test -f .gitmodules && git ls-tree --name-only HEAD submodules/flutter | grep -q .
       - run: flutter analyze
       - run: flutter test
       # A changed keystore means every installed copy has to be uninstalled
