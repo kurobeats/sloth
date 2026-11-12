@@ -54,3 +54,6 @@ coverage/
 
 # Local logs and captures
 *.log
+
+# local tools 
+tool/
